@@ -2,3 +2,18 @@ name = "FOMPrototypesBenchmarks"
 uuid = "ccbafd8d-f553-4e66-975a-28e0f4d1f971"
 authors = ["Gabriel Pereira <berkpereira@gmail.com>"]
 version = "0.1.0"
+
+[deps]
+Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
+FOMPrototypes = "b36ea0ae-89c9-4607-8f75-d88ac7b255b2"
+Infiltrator = "5903a43b-9cc3-4c30-8d17-598619ec4e9b"
+JLD2 = "033835bb-8acc-5ee8-8aae-3f567f8a3819"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+Revise = "295af30f-e4ad-537b-8983-00126c2a3abe"
+
+[compat]
+Dates = "1.11.0"
+Infiltrator = "1.8.8"
+JLD2 = "0.5.13"
+Random = "1.11.0"
+Revise = "3.7.6"
