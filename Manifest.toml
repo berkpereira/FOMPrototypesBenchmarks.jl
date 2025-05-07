@@ -217,10 +217,10 @@ weakdeps = ["SparseArrays"]
     ChainRulesCoreSparseArraysExt = "SparseArrays"
 
 [[deps.Clarabel]]
-deps = ["AMD", "GenericLinearAlgebra", "LinearAlgebra", "MathOptInterface", "Printf", "QDLDL", "Requires", "SnoopPrecompile", "SparseArrays", "StaticArrays", "SuiteSparse", "TOML", "TimerOutputs"]
-git-tree-sha1 = "07060b875e7cd22edd060baae6d914846f165194"
+deps = ["AMD", "DataStructures", "GenericLinearAlgebra", "HSL", "JSON", "LinearAlgebra", "MathOptInterface", "Pardiso", "Printf", "QDLDL", "Requires", "SnoopPrecompile", "SparseArrays", "StaticArrays", "SuiteSparse", "TOML", "TimerOutputs"]
+git-tree-sha1 = "fb098d0c10263d3c9eb5572c38594550a3b18a31"
 uuid = "61c947e1-3e6d-4ee4-985a-eec8c727bd6e"
-version = "0.7.1"
+version = "0.10.0"
 
 [[deps.ClarabelBenchmarks]]
 deps = ["Clarabel", "ColorSchemes", "ConicBenchmarkUtilities", "DataFrames", "Distributed", "Distributions", "DynamicPolynomials", "ECOS", "Flatten", "Gurobi", "HiGHS", "Hypatia", "JLD2", "JuMP", "LinearAlgebra", "MAT", "MathOptInterface", "Mosek", "MosekTools", "MultivariateMoments", "OSQP", "Pardiso", "Plots", "PowerModels", "PrettyTables", "Printf", "Random", "SCS", "SparseArrays", "StatsBase", "SumOfSquares", "Tulip"]
@@ -851,6 +851,18 @@ deps = ["Artifacts", "CompilerSupportLibraries_jll", "JLLWrappers", "LazyArtifac
 git-tree-sha1 = "e94f84da9af7ce9c6be049e9067e511e17ff89ec"
 uuid = "0234f1f7-429e-5d53-9886-15a909be8d59"
 version = "1.14.6+0"
+
+[[deps.HSL]]
+deps = ["HSL_jll", "Libdl", "LinearAlgebra", "OpenBLAS32_jll", "SparseArrays"]
+git-tree-sha1 = "c5b95ac0b3bb0fc856b587b946fd2845e7fab8dd"
+uuid = "34c5aeac-e683-54a6-a0e9-6e0fdc586c50"
+version = "0.4.3"
+
+[[deps.HSL_jll]]
+deps = ["Artifacts", "CompilerSupportLibraries_jll", "JLLWrappers", "Libdl"]
+git-tree-sha1 = "e81ea90c15f7f8cf8c7e72f594e7525ab0ca90f4"
+uuid = "017b0a0e-03f4-516a-9b91-836bbd1904dd"
+version = "4.0.2+0"
 
 [[deps.HTTP]]
 deps = ["Base64", "CodecZlib", "ConcurrentUtilities", "Dates", "ExceptionUnwrapping", "Logging", "LoggingExtras", "MbedTLS", "NetworkOptions", "OpenSSL", "PrecompileTools", "Random", "SimpleBufferStream", "Sockets", "URIs", "UUIDs"]
@@ -1641,9 +1653,9 @@ version = "0.12.3"
 
 [[deps.Pardiso]]
 deps = ["Libdl", "LinearAlgebra", "MKL_jll", "SparseArrays"]
-git-tree-sha1 = "75a4ab716b076fe92d76fd3a7db08ab984c2d34a"
+git-tree-sha1 = "8dbcb7c3c8066167825338732450db0ed1f2cad0"
 uuid = "46dd5b70-b6fb-5a00-ae2d-e8fea33afaf2"
-version = "1.0.1"
+version = "0.5.0"
 
 [[deps.Parsers]]
 deps = ["Dates", "PrecompileTools", "UUIDs"]
