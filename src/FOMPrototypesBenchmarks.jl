@@ -21,30 +21,38 @@ function run_single(variant::Symbol, problem_set::String, problem_name::String,
 
     # --- Prepare FOMPrototypes arguments ---
     args = Dict(
-        "ref-solver" => :SCS,
-        "variant"    => variant,
-        "problem-set"=> problem_set,
+        "ref-solver"  => :SCS,
+        "variant"     => variant,
+        "problem-set" => problem_set,
         "problem-name"=> problem_name,
-        "max-iter"   => 1000,
-        "print-mod"  => 0,
-        "run-fast"   => true,
-        "res-norm"   => Inf,
-        "rho"        => 1.0,
-        "theta"      => 1.0,
-        "acceleration" => :none,
-        "accel-memory" => 20,
+        
+        "res-norm"     => Inf,
+        "max-iter"     => 1000,
+        "rel-kkt-tol"  => 1e-10,
+        
+        "acceleration"    => :none,
+        "accel-memory"    => 200,
         "krylov-operator" => :tilde_A,
-        "anderson-period" => 10,
-        "anderson-broyden-type" => :normal2,
-        "anderson-mem-type" => :rolling,
-        "anderson-reg" => :none,
-        "restart-period" => Inf,
+        
+        "anderson-broyden-type" => Symbol(1), # in {Symbol(1), :normal2, :QR2}
+        "anderson-mem-type"     => :rolling, # in {:rolling, :restarted}
+        "anderson-reg"          => :none, # in {:none, :tikonov, :frobenius}
+        "anderson-period"       => 2,
+    
+        "rho"   => 1.0,
+        "theta" => 1.0,
+        
+        "restart-period"    => Inf,
         "linesearch-period" => Inf,
-        "linesearch-eps"    => 0.001
+        "linesearch-eps"    => 0.001,
+    
+        "print-mod"          => 50,
+        "residuals-relative" => true,
+        "show-vlines"        => true,
+        "run-fast"           => true,
     )
 
     # Fetch problem and solve reference
-    println(args)
     problem = FOMPrototypes.fetch_data(args)
     x_ref, s_ref, y_ref, obj_ref = FOMPrototypes.solve_reference(problem, args)
 
