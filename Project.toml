@@ -1,0 +1,4 @@
+name = "FOMPrototypesBenchmarks"
+uuid = "ccbafd8d-f553-4e66-975a-28e0f4d1f971"
+authors = ["Gabriel Pereira <berkpereira@gmail.com>"]
+version = "0.1.0"
