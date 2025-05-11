@@ -1,120 +1,121 @@
 module FOMPrototypesBenchmarks
 
-using FOMPrototypes, JLD2, Dates, Random
+using FOMPrototypes, JLD2, Dates, Random, Revise
 
-export run_multiple, run_warmup
+export run_multiple, run_warmup, method_id
 
-"""
-    run_multiple(
-      variant::Symbol,
-      max_iter::Int,
-      problem_set::String,
-      problem_name::String;
-      reps::Vector{Int},
-      resdir::String = "results",
-      save_results::Bool = true,
-      args = nothing
-    )
+const DEFAULT_SOLVER_ARGS = Dict{String,Any}(
+    # reference solver
+    "ref-solver"            => :SCS,
+    # method‐defining defaults
+    "variant"               => :ADMM,
+    "res-norm"              => Inf,
+    "acceleration"          => :none,
+    "rho"                   => 1.0,
+    "theta"                 => 1.0,
+    "accel-memory"          => 10,
+    "krylov-operator"       => :tilde_A,
+    "anderson-period"       => 5,
+    "anderson-broyden-type" => :normal2,
+    "anderson-mem-type"     => :rolling,
+    "anderson-reg"          => :none,
+    # non‐defining defaults
+    "max-iter"              => 1000,
+    "rel-kkt-tol"           => 1e-6,
+    "print-mod"             => 50,
+    "print-res-rel"         => true,
+    "show-vlines"           => false,
+    "run-fast"              => true,
+	"global-timeout"        => 60.0, # include set-up time (seconds)
+	"loop-timeout"          => 30.0, # exclude set-up time (seconds)
+    
+	# not in use
+    "restart-period"        => Inf,
+    "linesearch-period"     => Inf,
+    "linesearch-eps"        => 1e-3,
+)
 
-Runs *all* replicates in `reps`.  If `save_results`, only the `reps` whose
-`resdir/problem_set/problem_name/variant/repN.jld2` files do *not* exist
-will actually be solved; if none are missing, returns immediately.
-Problem data and reference solve are done only once.
-"""
-function run_multiple(variant::Symbol,
-                      max_iter::Int,
-                      problem_set::String,
-                      problem_name::String;
-                      reps::Vector{Int},
-                      resdir::String="results",
-                      save_results::Bool=true,
-                      args=nothing)
-
-    # prepare output directory & filter reps
-    outdir = joinpath(resdir, problem_set, problem_name, string(variant))
-    missing = Int[]
-    if save_results
-        for rep in reps
-            fname = joinpath(outdir, "rep$(rep).jld2")
-            if !isfile(fname)
-                push!(missing, rep)
-            end
-        end
-        if isempty(missing)
-            @info "[skip] all reps done for $variant / $problem_set / $problem_name"
-            return
-        end
-        reps = missing
-    end
-
-    # --- Fetch data & reference only once ---
-    if args === nothing
-        # can customise the defaults inside here
-        args = Dict(
-            "ref-solver"  => :SCS,
-            "variant"     => variant,
-            "problem-set" => problem_set,
-            "problem-name"=> problem_name,
-            
-            "res-norm"     => Inf,
-            "max-iter"     => max_iter,
-            "rel-kkt-tol"  => 1e-10,
-            
-            "acceleration"    => :none,
-            "accel-memory"    => 200,
-            "krylov-operator" => :tilde_A,
-            
-            "anderson-broyden-type" => Symbol(1), # in {Symbol(1), :normal2, :QR2}
-            "anderson-mem-type"     => :rolling, # in {:rolling, :restarted}
-            "anderson-reg"          => :none, # in {:none, :tikonov, :frobenius}
-            "anderson-period"       => 2,
-
-            "rho"   => 1.0,
-            "theta" => 1.0,
-            
-            "restart-period"    => Inf,
-            "linesearch-period" => Inf,
-            "linesearch-eps"    => 0.001,
-
-            "print-mod"          => 50,
-            "residuals-relative" => true,
-            "show-vlines"        => true,
-            "run-fast"           => true,
-        )
-    end
-
-    # load + solve reference
-    problem = FOMPrototypes.fetch_data(args)
-    x_ref, s_ref, y_ref, obj_ref = FOMPrototypes.solve_reference(problem, args)
-
-    # run each missing replicate
-    for rep in reps
-        @info "→ Running rep $rep for $variant / $problem_set / $problem_name"
-        Random.seed!(rep)
-        t = @elapsed ws, results = FOMPrototypes.run_prototype(
-            problem, args; x_ref=x_ref, y_ref=y_ref)
-
-        if save_results
-            mkpath(outdir)
-            fname = joinpath(outdir, "rep$(rep).jld2")
-            timestamp = Dates.now()
-            @info "Writing $fname"
-            @save fname variant problem_set problem_name rep t obj_ref ws results timestamp
-        end
-    end
+# ————————————————————————————————————————————————
+# 2) Canonical method ID (only hyperkeys that *define* the method)
+# ————————————————————————————————————————————————
+function method_id(config::Dict{String,Any})
+	ks = String[
+		"variant",
+		"res-norm",
+		"acceleration",
+		"rho",
+		"theta",
+	]
+	if config["acceleration"] == :anderson
+		append!(ks, [
+			"accel-memory",
+			"anderson-period",
+			"anderson-broyden-type",
+			"anderson-mem-type",
+			"anderson-reg",
+		])
+	elseif config["acceleration"] == :krylov
+		append!(ks, [
+			"accel-memory",
+			"krylov-operator",
+		])
+	end
+	sort!(ks)
+	parts = String[]
+	for k in ks
+		push!(parts, string(k, "=", config[k]))
+	end
+	return join(parts, "_")
 end
 
-"""
-    run_warmup(variant)
+# ————————————————————————————————————————————————
+# 3) run_multiple: accept a *solver config* + problem identifiers
+# ————————————————————————————————————————————————
+function run_multiple(args::Dict{String,Any},
+					  problem_set::String,
+					  problem_name::String;
+					  reps::Vector{Int},
+					  resdir::String="results",
+					  save_results::Bool=true)
 
-Do one tiny solve with the given `variant` to trigger all compilation paths.
-"""
-function run_warmup(variant)
-    # construct a trivial 1×1 quadratic problem
-    # e.g. problem_set = "toy", problem_name = "one_by_one"
-    # Here we assume your module knows how to make a dummy problem.
-    warmup_problem_set, warmup_problem_name = "sslsq", "NYPA_Maragal_1_lasso"
-    run_multiple(variant, 10, warmup_problem_set, warmup_problem_name; reps=[1], save_results=false)
+	# 3a) decide which reps are missing
+	mid = method_id(args)
+	outdir = joinpath(resdir, problem_set, problem_name, mid)
+	if save_results
+		missing = Int[]
+		for r in reps
+			f = joinpath(outdir, "rep$(r).jld2")
+			!isfile(f) && push!(missing, r)
+		end
+		isempty(missing) && return
+		reps = missing
+	end
+
+	# 3b) fetch data & solve reference once
+	prob     = FOMPrototypes.fetch_data(problem_set, problem_name)
+	x_ref, s_ref, y_ref, obj_ref = FOMPrototypes.solve_reference(prob, problem_set, problem_name, args)
+
+	# 3c) run each missing replicate
+	for rep in reps
+		Random.seed!(rep)
+		ws, results, to = FOMPrototypes.run_prototype(
+			prob, problem_set, problem_name, args; x_ref=x_ref, y_ref=y_ref)
+		if save_results
+			mkpath(outdir)
+			f = joinpath(outdir, "rep$(rep).jld2")
+			ts = Dates.now() # timestamp
+			@save f args problem_set problem_name rep to obj_ref ws results ts
+		end
+	end
 end
 
-end # module FOMPrototypesBenchmarks
+# ————————————————————————————————————————————————
+# 4) run_warmup: just a tiny dummy solve for compilation
+# ————————————————————————————————————————————————
+function run_warmup(args::Dict{String,Any})
+	# pick a trivial problem that actually exists
+	run_multiple(args, "sslsq", "NYPA_Maragal_1_lasso";
+				 reps=[1], save_results=false)
+end
+
+end # module
