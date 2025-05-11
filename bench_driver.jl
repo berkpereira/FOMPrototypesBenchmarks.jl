@@ -1,92 +1,105 @@
 #!/usr/bin/env julia
 
-# ——————————————————————————————————————————————————————————————————
-# 0) Define grid AND compute what reps are still missing
-# ——————————————————————————————————————————————————————————————————
+using Distributed, Logging, Random
+using FOMPrototypesBenchmarks: method_id, DEFAULT_SOLVER_ARGS
+import Dates
 
-const combos = [:ADMM, :PDHG]    # your variant / hyper combos
+start_time = Dates.now()
+
 const problems = [
-    ("sslsq","NYPA_Maragal_5_lasso"),
-    ("sslsq", "HB_ash219_lasso"),
-    ("sslsq","HB_ash958_huber"),
-    ("sslsq", "HB_abb313_lasso"),
-    # …etc…
+	("sslsq","NYPA_Maragal_5_lasso"),
+	("sslsq","HB_ash958_huber"),
 ]
-const nreps = 3                  # total replicates per problem
-const resdir = "results"         # same as run_multiple’s default
+const nreps = 3
 
-# build a list of tasks (variant, problem_set, problem_name, reps_missing)
-work = []
-for variant in combos
-  for (ps, pn) in problems
-    outdir = joinpath(resdir, ps, pn, string(variant))
-    missing = Int[]
-    for rep in 1:nreps
-      if !isfile(joinpath(outdir, "rep$(rep).jld2"))
-        push!(missing, rep)
-      end
-    end
-    if !isempty(missing)
-      push!(work, (variant, ps, pn, missing))
-    end
-  end
+# ————————————————————————————————————————————————
+# A) List *only* the solver‐defining override keys here
+# ————————————————————————————————————————————————
+const overrides = [
+	Dict(
+        "variant"               => Symbol(1),
+        "acceleration"          => :none,
+		"max-iter"              => Inf,
+		"rel-kkt-tol"           => 1e-12,
+		"global-timeout"        => 15.0,
+		"loop-timeout"          => 3.0,
+        ),
+	# Dict(
+    #     "variant"               => :ADMM,
+    #     "acceleration"          => :anderson,
+    #     "accel-memory"          => 100,
+    #     ),
+	# Dict(
+    #     "variant"               => :PDHG,
+    #     "acceleration"          => :none,
+    #     ),
+]
+
+# build full solver configurations by merging with default key-value pairs
+const solver_configs = [merge(copy(DEFAULT_SOLVER_ARGS), o) for o in overrides]
+
+# B) Precompute each combo’s string ID
+const combo_ids = method_id.(solver_configs)
+
+# C) Scan for missing work
+work = Tuple{Dict,String,String,String,Vector{Int}}[]
+for (cfg,id) in zip(solver_configs, combo_ids)
+	for (ps,pn) in problems
+		missing_reps = [r for r in 1:nreps if !isfile(joinpath("results", ps, pn, id, "rep$(r).jld2"))]
+		!isempty(missing_reps) && push!(work, (cfg, id, ps, pn, missing_reps))
+	end
 end
 
 if isempty(work)
-  @info "✅ All results already exist!  Nothing to do."
-  exit(0)
+    @info "✅ Nothing to do, exiting"
+    elapsed_time = Dates.now() - start_time
+    t = Dates.Time(0) + elapsed_time
+    @info "Elapsed time: $(Dates.format(t, "HH:MM:SS.s"))"
+    exit(0)
 end
 
-# ——————————————————————————————————————————————————————————————————
-# 1) Now that we know there *is* work, load up and dispatch it
-# ——————————————————————————————————————————————————————————————————
-
-using Distributed, Logging
-
-# how many workers we get from SLURM
-nworkers = parse(Int, ENV["SLURM_CPUS_PER_TASK"])
-@info "Spawning $nworkers Julia workers..."
+# D) Spawn SLURM-provided workers
+# reserve a CPU for this driver process, hence -1
+nworkers = parse(Int, ENV["SLURM_CPUS_PER_TASK"]) - 1
 addprocs(nworkers; exeflags="--project=.")
+@everywhere using FOMPrototypesBenchmarks: run_multiple, run_warmup
 
-@everywhere using FOMPrototypesBenchmarks
+# E) Split into groups by #combos, round-robin
+groups = begin
+	assigns = mod1.(1:nworkers, length(solver_configs))
+	ws      = workers()
+	[ ws[assigns .== i] for i in 1:length(solver_configs) ]
+end
 
-# sanity‐check PIDs (optional)
-workers_list = workers()
-pids = [remotecall_fetch(getpid, w) for w in workers_list]
-@info "Worker PIDs: $pids"
+# F) Warm-up & dispatch each combo in parallel
+@sync for (i,cfg) in enumerate(solver_configs)
+	id     = combo_ids[i]
+	wgroup = groups[i]
+	@async begin
+		@info "Combo $i ($id) using workers $wgroup"
 
-# partition workers *by variant* (outer grouping)
-ncombos = length(combos)
-assign = mod1.(1:length(workers_list), ncombos)
-groups = [ workers_list[assign .== i] for i in 1:ncombos ]
+		# F1) warm up each worker to JIT-compile
+		@sync for w in wgroup
+			@async remotecall_wait(run_warmup, w, cfg)
+		end
 
-# ——————————————————————————————————————————————————————————————————
-# 2) For each variant group: warm up, then pmap each (ps,pn,reps) tuple
-# ——————————————————————————————————————————————————————————————————
+		# F2) only the tasks for this combo
+		tasks = filter(t -> t[1] === cfg, work)
 
-@sync for (combo_idx, variant) in enumerate(combos)
-  wgroup = groups[combo_idx]
-  @async begin
-    @info "Group $combo_idx - variant=$variant on workers=$(wgroup)"
+		# F2.5) randomised the order of tasks for better load balancing
+		# even when number of tasks is small compared to number of workers
+		shuffle!(tasks)
 
-    # warm‐up each worker in parallel
-    @sync for w in wgroup
-      @async remotecall_wait(FOMPrototypesBenchmarks.run_warmup, w, variant)
-    end
-
-    # collect only those tasks in `work` that match this variant
-    mytasks = filter(x -> x[1] == variant, work)
-    # mytasks is a Vector of (variant, ps, pn, missing_reps::Vector{Int})
-
-    # build a pool and dispatch
-    pool = Distributed.CachingPool(wgroup)
-    pmap(t -> begin
-        (v, ps, pn, reps) = t
-        FOMPrototypesBenchmarks.run_multiple(v, 1000, ps, pn; reps = reps)
-      end,
-      pool,
-      mytasks)
-  end
+		# F3) dispatch via a CachingPool
+		pool = CachingPool(wgroup)
+		pmap(t -> begin
+			(_, _, ps, pn, reps) = t
+			run_multiple(cfg, ps, pn; reps=reps)
+		end, pool, tasks)
+	end
 end
 
 @info "🎉 All done!"
+elapsed_time = Dates.now() - start_time
+t = Dates.Time(0) + elapsed_time
+@info "Elapsed time: $(Dates.format(t, "HH:MM:SS.s"))"
