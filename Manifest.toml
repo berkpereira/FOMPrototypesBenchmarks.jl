@@ -1,8 +1,8 @@
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.11.4"
+julia_version = "1.11.5"
 manifest_format = "2.0"
-project_hash = "a6ad1fee565862a58e8f50fef76288bd786f91cc"
+project_hash = "f438eaa1e8b8d15ba1486dd88bada80b2b2631f4"
 
 [[deps.ADTypes]]
 git-tree-sha1 = "e2478490447631aedba0823d4d7a80b2cc8cdb32"
@@ -584,7 +584,7 @@ uuid = "f5851436-0d7a-5f13-b9de-f02708fd171a"
 version = "3.3.11+0"
 
 [[deps.FOMPrototypes]]
-deps = ["ArgParse", "BenchmarkTools", "COSMOAccelerators", "CSV", "Clarabel", "ClarabelBenchmarks", "Compat", "DSP", "DataFrames", "FFTW", "IJulia", "Infiltrator", "IterativeSolvers", "JLD2", "JuMP", "LinearAlgebra", "LinearMaps", "PProf", "PackageCompiler", "Parameters", "PlotlyJS", "Plots", "Printf", "Profile", "ProfileView", "Random", "Revise", "SCS", "SparseArrays", "StatProfilerHTML", "Statistics", "StatsBase", "StatsPlots"]
+deps = ["ArgParse", "BenchmarkTools", "COSMOAccelerators", "CSV", "Clarabel", "ClarabelBenchmarks", "Compat", "DSP", "DataFrames", "FFTW", "IJulia", "Infiltrator", "IterativeSolvers", "JLD2", "JuMP", "LinearAlgebra", "LinearMaps", "PProf", "PackageCompiler", "Parameters", "PlotlyJS", "Plots", "Printf", "Profile", "ProfileView", "Random", "Revise", "SCS", "SparseArrays", "StatProfilerHTML", "Statistics", "StatsBase", "StatsPlots", "TimerOutputs"]
 path = "../FOMPrototypes.jl"
 uuid = "b36ea0ae-89c9-4607-8f75-d88ac7b255b2"
 version = "0.1.0"
@@ -1579,7 +1579,7 @@ version = "0.3.27+1"
 [[deps.OpenLibm_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "05823500-19ac-5b8b-9628-191a04bc5112"
-version = "0.8.1+4"
+version = "0.8.5+0"
 
 [[deps.OpenMPI_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "Hwloc_jll", "JLLWrappers", "LazyArtifacts", "Libdl", "MPIPreferences", "TOML", "Zlib_jll"]
