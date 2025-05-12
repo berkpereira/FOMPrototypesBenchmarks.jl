@@ -15,19 +15,19 @@ const DEFAULT_SOLVER_ARGS = Dict{String,Any}(
     "theta"                 => 1.0,
     "accel-memory"          => 10,
     "krylov-operator"       => :tilde_A,
-    "anderson-period"       => 5,
-    "anderson-broyden-type" => :normal2,
-    "anderson-mem-type"     => :rolling,
-    "anderson-reg"          => :none,
+    "anderson-period"       => 2,
+    "anderson-broyden-type" => :normal2, # in {Symbol(1), :normal2, :QR2}
+    "anderson-mem-type"     => :rolling, # in {:rolling, :restarted}
+    "anderson-reg"          => :none, # in {:none, :tikonov, :frobenius}
     # non‐defining defaults
-    "max-iter"              => 1000,
+    "max-iter"              => Inf,
     "rel-kkt-tol"           => 1e-6,
     "print-mod"             => 50,
     "print-res-rel"         => true,
     "show-vlines"           => false,
     "run-fast"              => true,
 	"global-timeout"        => 60.0, # include set-up time (seconds)
-	"loop-timeout"          => 30.0, # exclude set-up time (seconds)
+	"loop-timeout"          => Inf, # exclude set-up time (seconds)
     
 	# not in use
     "restart-period"        => Inf,
@@ -93,18 +93,20 @@ function run_multiple(args::Dict{String,Any},
 
 	# 3b) fetch data & solve reference once
 	prob     = FOMPrototypes.fetch_data(problem_set, problem_name)
-	x_ref, s_ref, y_ref, obj_ref = FOMPrototypes.solve_reference(prob, problem_set, problem_name, args)
+	
+	# optional) solve reference using external solver
+	# x_ref, s_ref, y_ref, obj_ref = FOMPrototypes.solve_reference(prob, problem_set, problem_name, args)
 
 	# 3c) run each missing replicate
 	for rep in reps
 		Random.seed!(rep)
 		ws, results, to = FOMPrototypes.run_prototype(
-			prob, problem_set, problem_name, args; x_ref=x_ref, y_ref=y_ref)
+			prob, problem_set, problem_name, args)
 		if save_results
 			mkpath(outdir)
 			f = joinpath(outdir, "rep$(rep).jld2")
 			ts = Dates.now() # timestamp
-			@save f args problem_set problem_name rep to obj_ref ws results ts
+			@save f args problem_set problem_name rep to ws results ts
 		end
 	end
 end
@@ -114,7 +116,10 @@ end
 # ————————————————————————————————————————————————
 function run_warmup(args::Dict{String,Any})
 	# pick a trivial problem that actually exists
-	run_multiple(args, "sslsq", "NYPA_Maragal_1_lasso";
+
+	# see about size of this problem!
+	# small alternative is NYPA_Maragal_1_lasso
+	run_multiple(args, "sslsq", "NYPA_Maragal_5_lasso";
 				 reps=[1], save_results=false)
 end
 
