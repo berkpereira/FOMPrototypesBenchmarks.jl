@@ -6,29 +6,75 @@ import Dates
 
 start_time = Dates.now()
 
-const problems = [
-	("sslsq","NYPA_Maragal_5_lasso"),
-	("sslsq","HB_ash958_huber"),
-]
-const nreps = 3
+function load_problem_list(set::String)
+    fn = joinpath(@__DIR__, "problem_lists", "$set.txt")
+    lines = readlines(fn)
+    # drop empty or “#…” comment lines, strip whitespace
+    return [
+        strip(line) for line in lines
+        if !isempty(strip(line)) && !startswith(strip(line), "#")
+    ]
+end
+
+# now pick your set(s) and auto-generate the list
+const problem_sets = ["sslsq"]
+const problems = vcat((
+    [(ps, pname) for pname in load_problem_list(ps)]
+    for ps in problem_sets
+)...)
+
+const nreps = 40
 
 # ————————————————————————————————————————————————
 # A) List *only* the solver‐defining override keys here
 # ————————————————————————————————————————————————
 const overrides = [
 	Dict(
-        "variant"               => Symbol(1),
+        "variant"               => :ADMM,
         "acceleration"          => :none,
-		"max-iter"              => Inf,
-		"rel-kkt-tol"           => 1e-12,
-		"global-timeout"        => 15.0,
-		"loop-timeout"          => 3.0,
         ),
-	# Dict(
-    #     "variant"               => :ADMM,
-    #     "acceleration"          => :anderson,
-    #     "accel-memory"          => 100,
-    #     ),
+	Dict(
+        "variant"               => :ADMM,
+        "acceleration"          => :krylov,
+		"accel-memory"          => 15,
+        ),
+	Dict(
+		"variant" 			    => :ADMM,
+		"acceleration"          => :krylov,
+		"accel-memory"          => 30,
+	),
+	Dict(
+		"variant" 			    => :ADMM, # default Anderson "types"
+		"acceleration"          => :anderson,
+		"accel-memory"          => 15,
+		"anderson-period"       => 2,
+		"anderson-broyden-type" => :QR2,
+		"anderson-mem-type"     => :restarted,
+	),
+	Dict(
+		"variant" 			    => :ADMM,
+		"acceleration"          => :anderson,
+		"accel-memory"          => 30,
+		"anderson-period"       => 2,
+		"anderson-broyden-type" => :QR2,
+		"anderson-mem-type"     => :restarted,
+	),
+	Dict(
+		"variant" 			    => :ADMM,
+		"acceleration"          => :anderson,
+		"accel-memory"          => 15,
+		"anderson-period"       => 2,
+		"anderson-broyden-type" => :normal2,
+		"anderson-mem-type"     => :rolling,
+	),
+	Dict(
+		"variant" 			    => :ADMM,
+		"acceleration"          => :anderson,
+		"accel-memory"          => 30,
+		"anderson-period"       => 2,
+		"anderson-broyden-type" => :normal2,
+		"anderson-mem-type"     => :rolling,
+	),
 	# Dict(
     #     "variant"               => :PDHG,
     #     "acceleration"          => :none,
@@ -72,7 +118,7 @@ groups = begin
 end
 
 # F) Warm-up & dispatch each combo in parallel
-@sync for (i,cfg) in enumerate(solver_configs)
+@sync for (i, cfg) in enumerate(solver_configs)
 	id     = combo_ids[i]
 	wgroup = groups[i]
 	@async begin
@@ -80,7 +126,9 @@ end
 
 		# F1) warm up each worker to JIT-compile
 		@sync for w in wgroup
-			@async remotecall_wait(run_warmup, w, cfg)
+			cfg_warmup = copy(cfg)
+			cfg_warmup["max-iter"] = 100 # short warmup run
+			@async remotecall_wait(run_warmup, w, cfg_warmup)
 		end
 
 		# F2) only the tasks for this combo
