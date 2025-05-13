@@ -1,99 +1,77 @@
-#!/usr/bin/env julia
-
 using Distributed, Logging, Random
-using FOMPrototypesBenchmarks: method_id, DEFAULT_SOLVER_ARGS
+using FOMPrototypesBenchmarks
 import Dates
+
+# pick problem sets and auto-generate the list
+const problem_sets = ["sslsq"]
+const problems = vcat((
+	[(ps, pname) for pname in FOMPrototypesBenchmarks.load_problem_list(ps)]
+	for ps in problem_sets
+)...)
+const nreps = 10
+
+################################################################################
 
 start_time = Dates.now()
 
-function load_problem_list(set::String)
-    fn = joinpath(@__DIR__, "problem_lists", "$set.txt")
-    lines = readlines(fn)
-    # drop empty or “#…” comment lines, strip whitespace
-    return [
-        strip(line) for line in lines
-        if !isempty(strip(line)) && !startswith(strip(line), "#")
-    ]
-end
+# 1) your “grid” of settings
+variant   = :ADMM
+memories  = [10, 20, 30, 40, 50]
+broydens  = [:QR2, :normal2]
+memtypes  = [:restarted, :rolling]
 
-# now pick your set(s) and auto-generate the list
-const problem_sets = ["sslsq"]
-const problems = vcat((
-    [(ps, pname) for pname in load_problem_list(ps)]
-    for ps in problem_sets
-)...)
+# 2) build each family by comprehension
+acc_none   = [ FOMPrototypesBenchmarks.make_override(variant; acceleration=:none) ]
 
-const nreps = 40
+acc_krylov = [ FOMPrototypesBenchmarks.make_override(variant;
+                acceleration=:krylov,
+                accel_memory=m)
+            for m in memories ]
 
-# ————————————————————————————————————————————————
-# A) List *only* the solver‐defining override keys here
-# ————————————————————————————————————————————————
-const overrides = [
-	Dict(
-        "variant"               => :ADMM,
-        "acceleration"          => :none,
-        ),
-	Dict(
-        "variant"               => :ADMM,
-        "acceleration"          => :krylov,
-		"accel-memory"          => 15,
-        ),
-	Dict(
-		"variant" 			    => :ADMM,
-		"acceleration"          => :krylov,
-		"accel-memory"          => 30,
-	),
-	Dict(
-		"variant" 			    => :ADMM, # default Anderson "types"
-		"acceleration"          => :anderson,
-		"accel-memory"          => 15,
-		"anderson-period"       => 2,
-		"anderson-broyden-type" => :QR2,
-		"anderson-mem-type"     => :restarted,
-	),
-	Dict(
-		"variant" 			    => :ADMM,
-		"acceleration"          => :anderson,
-		"accel-memory"          => 30,
-		"anderson-period"       => 2,
-		"anderson-broyden-type" => :QR2,
-		"anderson-mem-type"     => :restarted,
-	),
-	Dict(
-		"variant" 			    => :ADMM,
-		"acceleration"          => :anderson,
-		"accel-memory"          => 15,
-		"anderson-period"       => 2,
-		"anderson-broyden-type" => :normal2,
-		"anderson-mem-type"     => :rolling,
-	),
-	Dict(
-		"variant" 			    => :ADMM,
-		"acceleration"          => :anderson,
-		"accel-memory"          => 30,
-		"anderson-period"       => 2,
-		"anderson-broyden-type" => :normal2,
-		"anderson-mem-type"     => :rolling,
-	),
-	# Dict(
-    #     "variant"               => :PDHG,
-    #     "acceleration"          => :none,
-    #     ),
-]
+acc_anderson = [ FOMPrototypesBenchmarks.make_override(variant;
+                    acceleration=:anderson,
+                    accel_memory=m,
+                    anderson_period=2,
+                    anderson_broyden_type=:QR2,
+                    anderson_mem_type=:restarted)
+                for m in memories]
+
+acc_anderson = vcat(acc_anderson,
+    [ FOMPrototypesBenchmarks.make_override(variant;
+        acceleration=:anderson,
+        accel_memory=m,
+        anderson_period=2,
+        anderson_broyden_type=:rolling,
+        anderson_mem_type=:normal2)
+    for m in memories])
+
+# 3) concatenate to get the full override list
+overrides = [acc_none; acc_krylov; acc_anderson]
 
 # build full solver configurations by merging with default key-value pairs
-const solver_configs = [merge(copy(DEFAULT_SOLVER_ARGS), o) for o in overrides]
+solver_configs = [merge(copy(FOMPrototypesBenchmarks.DEFAULT_SOLVER_ARGS), o) for o in overrides]
 
 # B) Precompute each combo’s string ID
-const combo_ids = method_id.(solver_configs)
+combo_ids = FOMPrototypesBenchmarks.method_id.(solver_configs)
+
+# log what we're about to run
+@info "About to benchmark $(length(combo_ids)) solver variants on $(length(problems)) problems, each with $nreps replicates."
+@info "Solver IDs ($(length(combo_ids))):"
+for id in combo_ids
+    @info "  • $id"
+end
+@info "Problems ($(length(problems))):"
+for (ps, pn) in problems
+    @info "  • $ps / $pn"
+end
 
 # C) Scan for missing work
 work = Tuple{Dict,String,String,String,Vector{Int}}[]
 for (cfg,id) in zip(solver_configs, combo_ids)
-	for (ps,pn) in problems
-		missing_reps = [r for r in 1:nreps if !isfile(joinpath("results", ps, pn, id, "rep$(r).jld2"))]
-		!isempty(missing_reps) && push!(work, (cfg, id, ps, pn, missing_reps))
-	end
+    for (ps,pn) in problems
+        missing_reps = [r for r in 1:nreps if !isfile(joinpath("results", ps, pn, id, "rep$(r).jld2"))]
+        !isempty(missing_reps) && push!(work, (cfg, id, ps, pn, missing_reps))
+    end
 end
 
 if isempty(work)
@@ -112,39 +90,51 @@ addprocs(nworkers; exeflags="--project=.")
 
 # E) Split into groups by #combos, round-robin
 groups = begin
-	assigns = mod1.(1:nworkers, length(solver_configs))
-	ws      = workers()
-	[ ws[assigns .== i] for i in 1:length(solver_configs) ]
+    assigns = mod1.(1:nworkers, length(solver_configs))
+    ws      = workers()
+    [ ws[assigns .== i] for i in 1:length(solver_configs) ]
 end
 
 # F) Warm-up & dispatch each combo in parallel
 @sync for (i, cfg) in enumerate(solver_configs)
-	id     = combo_ids[i]
-	wgroup = groups[i]
-	@async begin
-		@info "Combo $i ($id) using workers $wgroup"
+    id     = combo_ids[i]
+    wgroup = groups[i]
+    @async begin
+        @info "Combo $i ($id) using workers $wgroup"
 
-		# F1) warm up each worker to JIT-compile
-		@sync for w in wgroup
-			cfg_warmup = copy(cfg)
-			cfg_warmup["max-iter"] = 100 # short warmup run
-			@async remotecall_wait(run_warmup, w, cfg_warmup)
-		end
+        # F1) warm up each worker to JIT-compile
+        @sync for w in wgroup
+            cfg_warmup = copy(cfg)
+            cfg_warmup["max-iter"] = 1000
+            cfg_warmup["global-timeout"] = 10.0
+            
+            # if method is too good on the problem, the warmup run might be
+            # too short to precompile as intended -- set 0 tolerance
+            cfg_warmup["rel-kkt-tol"] = 0.0 
+            @async remotecall_wait(run_warmup, w, cfg_warmup)
+        end
 
-		# F2) only the tasks for this combo
-		tasks = filter(t -> t[1] === cfg, work)
+        # F2) only the tasks for this combo
+        tasks = filter(t -> t[1] === cfg, work)
 
-		# F2.5) randomised the order of tasks for better load balancing
-		# even when number of tasks is small compared to number of workers
-		shuffle!(tasks)
+        # F2.5) randomised the order of tasks for better load balancing
+        # even when number of tasks is small compared to number of workers
+        shuffle!(tasks)
 
-		# F3) dispatch via a CachingPool
-		pool = CachingPool(wgroup)
-		pmap(t -> begin
-			(_, _, ps, pn, reps) = t
-			run_multiple(cfg, ps, pn; reps=reps)
-		end, pool, tasks)
-	end
+        # F3) dispatch via a CachingPool
+        pool = CachingPool(wgroup)
+        pmap(t -> begin
+            (_, id, ps, pn, reps) = t
+            try
+                @info "Starting $id on $ps/$pn reps=$(reps)"
+                run_multiple(cfg, ps, pn; reps=reps)
+            catch err
+                @error "Failed on method=$id problem=$ps/$pn reps=$(reps)" exception=err
+                rethrow()
+            end
+        end, pool, tasks)
+
+    end
 end
 
 @info "🎉 All done!"
