@@ -5,7 +5,7 @@
 
 #SBATCH --ntasks=1
 #SBATCH --nodes=1
-#SBATCH --cpus-per-task=40       # grab however many logical CPUs
+#SBATCH --cpus-per-task=55       # grab however many logical CPUs
 #SBATCH --exclusive              # no other jobs on this node
 #SBATCH --time=08:00:00
 
