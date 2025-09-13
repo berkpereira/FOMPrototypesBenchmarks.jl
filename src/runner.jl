@@ -15,7 +15,8 @@ function method_id(config::Dict{String,Any})
 	if config["acceleration"] == :anderson
 		append!(ks, [
 			"accel-memory",
-			"anderson-period",
+			"safeguard-norm",
+			"anderson-interval",
 			"anderson-broyden-type",
 			"anderson-mem-type",
 			"anderson-reg",
@@ -23,6 +24,8 @@ function method_id(config::Dict{String,Any})
 	elseif config["acceleration"] == :krylov
 		append!(ks, [
 			"accel-memory",
+			"safeguard-norm",
+			"krylov-tries-per-mem",
 			"krylov-operator",
 		])
 	end
@@ -72,7 +75,7 @@ function run_multiple(args::Dict{String,Any},
 			mkpath(outdir)
 			f = joinpath(outdir, "rep$(rep).jld2")
 			ts = Dates.now() # timestamp
-			@save f args problem_set problem_name rep to ws results ts
+			@save f args problem_set problem_name rep to results ts
 		end
 	end
 end
