@@ -3,47 +3,62 @@ using FOMPrototypesBenchmarks
 import Dates
 
 # pick problem sets and auto-generate the list
-const problem_sets = ["sslsq"]
+const problem_sets = [
+    "sslsq",
+    # "maros",
+    # "mpc",
+    # "netlib_feasible",
+    ]
+
 const problems = vcat((
 	[(ps, pname) for pname in FOMPrototypesBenchmarks.load_problem_list(ps)]
 	for ps in problem_sets
 )...)
-const nreps = 10
+const nreps = 2 # we can use minimum time in each problem
 
 ################################################################################
 
 start_time = Dates.now()
 
-# 1) your “grid” of settings
-variant   = :ADMM
-memories  = [10, 20, 30, 40, 50]
-broydens  = [:QR2, :normal2]
-memtypes  = [:restarted, :rolling]
+# 1) “grid” of settings
+variant   = :PDHG
+memories  = [20, 40]
+
+anderson_intervals = [5, 10]
+
+krylov_tries_numbers = [2, 3]
+
+# anderson_broydens  = [:QR2, :normal2]
+# anderson_memtypes  = [:restarted, :rolling]
 
 # 2) build each family by comprehension
 acc_none   = [ FOMPrototypesBenchmarks.make_override(variant; acceleration=:none) ]
 
 acc_krylov = [ FOMPrototypesBenchmarks.make_override(variant;
                 acceleration=:krylov,
-                accel_memory=m)
-            for m in memories ]
+                accel_memory=m,
+                krylov_tries_per_mem=krylov_tries,
+                )
+            for m in memories for krylov_tries in krylov_tries_numbers]
 
+# Anderson configs with broyden_type == :QR2, mem_type == :restarted
 acc_anderson = [ FOMPrototypesBenchmarks.make_override(variant;
                     acceleration=:anderson,
                     accel_memory=m,
-                    anderson_period=2,
+                    anderson_interval=anderson_interval,
                     anderson_broyden_type=:QR2,
                     anderson_mem_type=:restarted)
-                for m in memories]
+                for m in memories for anderson_interval in anderson_intervals]
 
-acc_anderson = vcat(acc_anderson,
-    [ FOMPrototypesBenchmarks.make_override(variant;
-        acceleration=:anderson,
-        accel_memory=m,
-        anderson_period=2,
-        anderson_broyden_type=:rolling,
-        anderson_mem_type=:normal2)
-    for m in memories])
+# # Anderson configs with broyden_type == :normal2, mem_type == :rolling
+# acc_anderson = vcat(acc_anderson,
+#     [ FOMPrototypesBenchmarks.make_override(variant;
+#         acceleration=:anderson,
+#         accel_memory=m,
+#         anderson_interval=anderson_interval,
+#         anderson_broyden_type=:normal2,
+#         anderson_mem_type=:rolling)
+#     for m in memories for anderson_interval in anderson_intervals])
 
 # 3) concatenate to get the full override list
 overrides = [acc_none; acc_krylov; acc_anderson]
@@ -107,7 +122,7 @@ end
             cfg_warmup = copy(cfg)
             cfg_warmup["max-iter"] = 1000
             cfg_warmup["global-timeout"] = 10.0
-            
+            cfg_warmup["loop-timeout"] = 10.0
             # if method is too good on the problem, the warmup run might be
             # too short to precompile as intended -- set 0 tolerance
             cfg_warmup["rel-kkt-tol"] = 0.0 
