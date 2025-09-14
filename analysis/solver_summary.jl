@@ -1,7 +1,7 @@
 using FOMPrototypes, DataFrames, JLD2, Glob, Statistics, Plots
 
 # 1) Locate all result files
-target_variant = :PDHG
+target_variant = :ADMM
 files = glob("results/*/*/*$target_variant*/rep*.jld2", dirname(@__DIR__))
 
 # 2) Parse each file into a row
@@ -15,16 +15,21 @@ function load_row(f)
     setup_time  = d["to"].inner_timers["setup"].accumulated_data.time  / 1e9 # (seconds)
     solver_time = d["to"].inner_timers["solver"].accumulated_data.time / 1e9 # (seconds)
     status = d["results"].exit_status
+    k_final = d["results"].k_final
+    k_operator_final = d["results"].k_operator_final
+
     return (
-        file        = f,
-        problem_set = ps,
-        problem_name= pn,
-        method_id   = mid,
-        rep         = rep,
-        setup_time  = setup_time,
-        solver_time = solver_time,
-        total_time  = setup_time + solver_time,
-        status      = status,
+        file             = f,
+        problem_set      = ps,
+        problem_name     = pn,
+        method_id        = mid,
+        rep              = rep,
+        setup_time       = setup_time,
+        solver_time      = solver_time,
+        total_time       = setup_time + solver_time,
+        status           = status,
+        k_final          = k_final,
+        k_operator_final = k_operator_final,
     )
 end
 
@@ -70,6 +75,8 @@ end
 
 # Pivot to one row per (problem, method), aggregate reps
 agg = combine(groupby(df, [:problem_set, :problem_name, :method_id]), 
+    :k_final => minimum => :min_k_final,
+    :k_operator_final => minimum => :min_k_operator_final,
     :setup_time => median => :μ_setup_time,
     :setup_time => std  => :σ_setup_time,
     :setup_time => minimum  => :min_setup_time,
@@ -141,7 +148,7 @@ for m in methods
         for τ in taus]
 end
 
-plotlyjs()
+gr()
 default(size=(800,600))
 ys = Matrix(perf[:, Not(:τ)])
 plt = plot(perf.τ, ys,
