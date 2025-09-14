@@ -5,11 +5,9 @@
 
 #SBATCH --ntasks=1
 #SBATCH --nodes=1
-#SBATCH --cpus-per-task=60          # grab logical CPUs
+#SBATCH --cpus-per-task=36          # grab logical CPUs
 
-# # SBATCH --hint=nomultithread     # disable hyperthread scheduling
-
-# SBATCH --hint=multithread       # enable hyperthread scheduling
+# SBATCH --hint=nomultithread       # no hyperthread scheduling...
 # SBATCH --cpu-bind=cores         # bind to cores, don't move worker threads
 
 #SBATCH --exclusive              # no other jobs on this node
@@ -17,12 +15,14 @@
 
 cd $HOME/repos/FOMPrototypesBenchmarks.jl
 # kill my Julia processes before starting
-pkill -f julia
+pkill -u "$USER" -f julia
 
 # ensure each Julia worker is single-threaded (?)
+# single-threaded everywhere
 export JULIA_NUM_THREADS=1
 export OPENBLAS_NUM_THREADS=1
 export MKL_NUM_THREADS=1
+export OMP_NUM_THREADS=1
 
-# fire up the one driver that will spawn its own workers
+# fire up the (one) driver that will spawn its own workers
 julia --project=. bench_driver.jl
