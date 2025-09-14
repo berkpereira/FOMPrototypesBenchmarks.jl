@@ -3,7 +3,7 @@ const DEFAULT_SOLVER_ARGS = Dict{String,Any}(
     "ref-solver"            => :SCS,
     
     # method‐defining defaults
-    "variant"               => :PDHG,
+    "variant"               => :ADMM,
     "res-norm"              => Inf,
     "rho"                   => 1.0,
     "theta"                 => 1.0,
@@ -13,7 +13,7 @@ const DEFAULT_SOLVER_ARGS = Dict{String,Any}(
     "safeguard-norm"        => :euclid, # in {:euclid, :char, :none}
     
     "krylov-tries-per-mem"  => 1,
-    "krylov-operator"       => :tilde_A,
+    "krylov-operator"       => :B,
     
     "anderson-interval"     => 10,
     "anderson-broyden-type" => :normal2, # in {Symbol(1), :normal2, :QR2}
@@ -21,13 +21,14 @@ const DEFAULT_SOLVER_ARGS = Dict{String,Any}(
     "anderson-reg"          => :none, # in {:none, :tikonov, :frobenius}
     
     # non‐defining defaults
-    "max-iter"              => Inf,
+    "max-iter"              => 1_000, # only has an effect for no acceleration!
+    "max-k-operator"        => 1_000, # only has an effect for accelerated (Krylov/Anderson)!
     "rel-kkt-tol"           => 1e-6,
     "print-mod"             => 10_000,
     "print-res-rel"         => true,
     "show-vlines"           => false,
     "run-fast"              => true,
-	"global-timeout"        => 120.0, # include set-up time (seconds)
+	"global-timeout"        => Inf, # include set-up time (seconds)
 	"loop-timeout"          => Inf,   # exclude set-up time (seconds)
     
 	# not in use

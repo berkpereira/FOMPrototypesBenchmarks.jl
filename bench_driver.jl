@@ -10,6 +10,9 @@ const problem_sets = [
     # "netlib_feasible",
     ]
 
+
+# note this loads problems from search results (ie possibly filtered somehow
+# from whole of each problem set)
 const problems = vcat((
 	[(ps, pname) for pname in FOMPrototypesBenchmarks.load_problem_list(ps)]
 	for ps in problem_sets
@@ -21,15 +24,15 @@ const nreps = 2 # we can use minimum time in each problem
 start_time = Dates.now()
 
 # 1) “grid” of settings
-variant   = :PDHG
-memories  = [20, 40]
+variant   = :ADMM
+memories  = [15]
 
-anderson_intervals = [5, 10]
+anderson_intervals = [1, 10]
 
-krylov_tries_numbers = [2, 3]
+krylov_tries_numbers = [1, 3]
 
-# anderson_broydens  = [:QR2, :normal2]
-# anderson_memtypes  = [:restarted, :rolling]
+anderson_broydens  = [:QR2]
+anderson_memtypes  = [:restarted]
 
 # 2) build each family by comprehension
 acc_none   = [ FOMPrototypesBenchmarks.make_override(variant; acceleration=:none) ]
@@ -41,27 +44,18 @@ acc_krylov = [ FOMPrototypesBenchmarks.make_override(variant;
                 )
             for m in memories for krylov_tries in krylov_tries_numbers]
 
-# Anderson configs with broyden_type == :QR2, mem_type == :restarted
+# Anderson configs with diff broyden types, mem_type == :restarted
 acc_anderson = [ FOMPrototypesBenchmarks.make_override(variant;
                     acceleration=:anderson,
                     accel_memory=m,
                     anderson_interval=anderson_interval,
-                    anderson_broyden_type=:QR2,
+                    anderson_broyden_type=b,
                     anderson_mem_type=:restarted)
-                for m in memories for anderson_interval in anderson_intervals]
-
-# # Anderson configs with broyden_type == :normal2, mem_type == :rolling
-# acc_anderson = vcat(acc_anderson,
-#     [ FOMPrototypesBenchmarks.make_override(variant;
-#         acceleration=:anderson,
-#         accel_memory=m,
-#         anderson_interval=anderson_interval,
-#         anderson_broyden_type=:normal2,
-#         anderson_mem_type=:rolling)
-#     for m in memories for anderson_interval in anderson_intervals])
+                for m in memories for anderson_interval in anderson_intervals for b in anderson_broydens]
 
 # 3) concatenate to get the full override list
-overrides = [acc_none; acc_krylov; acc_anderson]
+# overrides = [acc_none; acc_krylov; acc_anderson]
+overrides = [acc_none;]
 
 # build full solver configurations by merging with default key-value pairs
 solver_configs = [merge(copy(FOMPrototypesBenchmarks.DEFAULT_SOLVER_ARGS), o) for o in overrides]
@@ -120,12 +114,12 @@ end
         # F1) warm up each worker to JIT-compile
         @sync for w in wgroup
             cfg_warmup = copy(cfg)
-            cfg_warmup["max-iter"] = 1000
-            cfg_warmup["global-timeout"] = 10.0
-            cfg_warmup["loop-timeout"] = 10.0
+            cfg_warmup["max-iter"] = 200
+            cfg_warmup["global-timeout"] = Inf
+            cfg_warmup["loop-timeout"] = Inf
             # if method is too good on the problem, the warmup run might be
             # too short to precompile as intended -- set 0 tolerance
-            cfg_warmup["rel-kkt-tol"] = 0.0 
+            cfg_warmup["rel-kkt-tol"] = 0.0
             @async remotecall_wait(run_warmup, w, cfg_warmup)
         end
 
