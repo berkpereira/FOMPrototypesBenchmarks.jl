@@ -4,7 +4,8 @@ import Dates
 
 # pick problem sets and auto-generate the list
 const problem_sets = [
-    "sslsq",
+    "sslsq_sub20_000",
+    # "sslsq_sub100_000",
     # "maros",
     # "mpc",
     # "netlib_feasible",
@@ -31,7 +32,6 @@ anderson_intervals = [1, 10]
 
 krylov_tries_numbers = [1, 3]
 
-anderson_broydens  = [:QR2]
 anderson_memtypes  = [:restarted]
 
 # 2) build each family by comprehension
@@ -45,28 +45,45 @@ acc_krylov = [ FOMPrototypesBenchmarks.make_override(variant;
             for m in memories for krylov_tries in krylov_tries_numbers]
 
 # Anderson configs with diff broyden types, mem_type == :restarted
-acc_anderson = [ FOMPrototypesBenchmarks.make_override(variant;
+acc_anderson_type2 = [ FOMPrototypesBenchmarks.make_override(variant;
                     acceleration=:anderson,
                     accel_memory=m,
                     anderson_interval=anderson_interval,
-                    anderson_broyden_type=b,
+                    anderson_broyden_type=:QR2,
                     anderson_mem_type=:restarted)
-                for m in memories for anderson_interval in anderson_intervals for b in anderson_broydens]
+                for m in memories for anderson_interval in anderson_intervals]
+
+acc_anderson_type1 = [ FOMPrototypesBenchmarks.make_override(variant;
+                    acceleration=:anderson,
+                    accel_memory=m,
+                    anderson_interval=anderson_interval,
+                    anderson_broyden_type=Symbol(1),
+                    anderson_mem_type=:rolling)
+                    for m in memories for anderson_interval in anderson_intervals]
 
 # 3) concatenate to get the full override list
-# overrides = [acc_none; acc_krylov; acc_anderson]
-overrides = [acc_none;]
+overrides = [
+    acc_none;
+    acc_krylov;
+    acc_anderson_type2;
+    acc_anderson_type1;
+    ]
 
 # build full solver configurations by merging with default key-value pairs
 solver_configs = [merge(copy(FOMPrototypesBenchmarks.DEFAULT_SOLVER_ARGS), o) for o in overrides]
 
-# B) Precompute each combo’s string ID
-combo_ids = FOMPrototypesBenchmarks.method_id.(solver_configs)
+# B) Precompute each combo’s string IDs
+combo_solver_ids = FOMPrototypesBenchmarks.method_id.(solver_configs)
+combo_run_ids    = FOMPrototypesBenchmarks.run_params_id.(solver_configs)
 
 # log what we're about to run
 @info "About to benchmark $(length(combo_ids)) solver variants on $(length(problems)) problems, each with $nreps replicates."
-@info "Solver IDs ($(length(combo_ids))):"
-for id in combo_ids
+@info "Solver IDs ($(length(combo_solver_ids))):"
+for id in combo_solver_ids
+    @info "  • $id"
+end
+@info "Run Param IDs (shared across problems):"
+for id in unique(combo_run_ids)
     @info "  • $id"
 end
 @info "Problems ($(length(problems))):"
@@ -75,11 +92,11 @@ for (ps, pn) in problems
 end
 
 # C) Scan for missing work
-work = Tuple{Dict,String,String,String,Vector{Int}}[]
-for (cfg,id) in zip(solver_configs, combo_ids)
+work = Tuple{Dict,String,String,String,String,Vector{Int}}[]
+for (cfg,solver_id,run_id) in zip(solver_configs, combo_solver_ids, combo_run_ids)
     for (ps,pn) in problems
-        missing_reps = [r for r in 1:nreps if !isfile(joinpath("results", ps, pn, id, "rep$(r).jld2"))]
-        !isempty(missing_reps) && push!(work, (cfg, id, ps, pn, missing_reps))
+        missing_reps = [r for r in 1:nreps if !isfile(joinpath("results", ps, pn, solver_id, run_id, "rep$(r).jld2"))]
+        !isempty(missing_reps) && push!(work, (cfg, solver_id, run_id, ps, pn, missing_reps))
     end
 end
 
@@ -106,10 +123,11 @@ end
 
 # F) Warm-up & dispatch each combo in parallel
 @sync for (i, cfg) in enumerate(solver_configs)
-    id     = combo_ids[i]
+    solver_id = combo_solver_ids[i]
+    run_id    = combo_run_ids[i]
     wgroup = groups[i]
     @async begin
-        @info "Combo $i ($id) using workers $wgroup"
+        @info "Combo $i ($solver_id | $run_id) using workers $wgroup"
 
         # F1) warm up each worker to JIT-compile
         @sync for w in wgroup
@@ -133,12 +151,12 @@ end
         # F3) dispatch via a CachingPool
         pool = CachingPool(wgroup)
         pmap(t -> begin
-            (_, id, ps, pn, reps) = t
+            (_, solver_id, run_id, ps, pn, reps) = t
             try
-                @info "Starting $id on $ps/$pn reps=$(reps)"
+                @info "Starting $solver_id | $run_id on $ps/$pn reps=$(reps)"
                 run_multiple(cfg, ps, pn; reps=reps)
             catch err
-                @error "Failed on method=$id problem=$ps/$pn reps=$(reps)" exception=err
+                @error "Failed on method=$solver_id run=$run_id problem=$ps/$pn reps=$(reps)" exception=err
                 rethrow()
             end
         end, pool, tasks)

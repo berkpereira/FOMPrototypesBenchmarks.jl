@@ -38,6 +38,23 @@ function method_id(config::Dict{String,Any})
 end
 
 # ————————————————————————————————————————————————
+# 2b) (Selection of) run parameters ID (non-defining runtime knobs)
+# ————————————————————————————————————————————————
+function run_params_id(config::Dict{String,Any})
+    ks = String[
+        "global-timeout",
+        "max-k-operator",
+        "rel-kkt-tol",
+    ]
+    sort!(ks)
+    parts = String[]
+    for k in ks
+        push!(parts, string(k, "=", config[k]))
+    end
+    return join(parts, "_")
+end
+
+# ————————————————————————————————————————————————
 # 3) run_multiple: accept a *solver config* + problem identifiers
 # ————————————————————————————————————————————————
 function run_multiple(args::Dict{String,Any},
@@ -48,8 +65,9 @@ function run_multiple(args::Dict{String,Any},
 					  save_results::Bool=true)
 
 	# 3a) decide which reps are missing
-	mid = method_id(args)
-	outdir = joinpath(resdir, problem_set, problem_name, mid)
+	mid  = method_id(args)
+	rpid = run_params_id(args)
+	outdir = joinpath(resdir, problem_set, problem_name, mid, rpid)
 	if save_results
 		missing = Int[]
 		for r in reps
