@@ -5,10 +5,10 @@ import Dates
 # pick problem sets and auto-generate the list
 const problem_sets = [
     "sslsq",
-    # "maros",
-    # "mpc",
-    # "netlib_feasible",
-    ]
+    "maros",
+    "mpc",
+    "netlib_feasible",
+]
 
 
 # note this loads problems from search results (ie possibly filtered somehow
@@ -30,8 +30,6 @@ memories  = [15]
 anderson_intervals = [1, 10]
 
 krylov_tries_numbers = [1, 3]
-
-anderson_memtypes  = [:restarted]
 
 # 2) build each family by comprehension
 acc_none   = [ FOMPrototypesBenchmarks.make_override(variant; acceleration=:none) ]
