@@ -4,8 +4,7 @@ import Dates
 
 # pick problem sets and auto-generate the list
 const problem_sets = [
-    "sslsq_sub20_000",
-    # "sslsq_sub100_000",
+    "sslsq",
     # "maros",
     # "mpc",
     # "netlib_feasible",
@@ -77,7 +76,7 @@ combo_solver_ids = FOMPrototypesBenchmarks.method_id.(solver_configs)
 combo_run_ids    = FOMPrototypesBenchmarks.run_params_id.(solver_configs)
 
 # log what we're about to run
-@info "About to benchmark $(length(combo_ids)) solver variants on $(length(problems)) problems, each with $nreps replicates."
+@info "About to benchmark $(length(combo_solver_ids)) solver variants on $(length(problems)) problems, each with $nreps replicates."
 @info "Solver IDs ($(length(combo_solver_ids))):"
 for id in combo_solver_ids
     @info "  • $id"
