@@ -22,8 +22,13 @@ const DEFAULT_SOLVER_ARGS = Dict{String,Any}(
     "anderson-reg"          => :none, # in {:none, :tikonov, :frobenius}
     
     # non‐defining defaults
-    "max-iter"              => 3_000, # only has an effect for no acceleration!
-    "max-k-operator"        => 3_000, # only has an effect for accelerated (Krylov/Anderson)!
+    
+    #######
+    # MAKE SURE max-iter AND max-k-operator EQUAL
+    #######
+    
+    "max-iter"              => 50_000, # only has an effect for no acceleration!
+    "max-k-operator"        => 50_000, # only has an effect for accelerated (Krylov/Anderson)!
     "rel-kkt-tol"           => 1e-9,
     "print-mod"             => 10_000,
     "print-res-rel"         => true,
