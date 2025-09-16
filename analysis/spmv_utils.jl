@@ -131,7 +131,7 @@ end
     paper_plot_kwargs(; column::Symbol=:single,
                         width_pt::Union{Nothing,Real}=nothing,
                         height_pt::Union{Nothing,Real}=nothing,
-                        aspect::Real=0.62,
+                        aspect::Real=1.0,
                         fontfamily::AbstractString="Computer Modern",
                         fontsize::Real=8,
                         tickfontsize::Union{Nothing,Real}=nothing,
@@ -142,8 +142,8 @@ end
                         grid::Bool=false,
                         tight::Bool=false,
                         framestyle::Symbol=:box,
-                        left_margin=4mm, right_margin=2mm,
-                        top_margin=2mm, bottom_margin=3mm)
+                        left_margin=0mm, right_margin=0mm,
+                        top_margin=0mm, bottom_margin=0mm)
 
 Return a NamedTuple of Plots.jl kwargs suitable for “paper-ready” figures.
 
@@ -162,7 +162,7 @@ directly with no DPI, so the PDF's bounding box matches your typographic width.
 function paper_plot_kwargs(; column::Symbol=:single,
         width_pt::Union{Nothing,Real}=nothing,
         height_pt::Union{Nothing,Real}=nothing,
-        aspect::Real=0.62,
+        aspect::Real=1.0,
         fontfamily::AbstractString="Computer Modern",
         fontsize::Real=8,
         tickfontsize::Union{Nothing,Real}=nothing,
@@ -173,8 +173,8 @@ function paper_plot_kwargs(; column::Symbol=:single,
         grid::Bool=false,
         tight::Bool=false,
         framestyle::Symbol=:box,
-        left_margin=4mm, right_margin=2mm,
-        top_margin=2mm, bottom_margin=3mm)
+        left_margin=0mm, right_margin=0mm,
+        top_margin=0mm, bottom_margin=0mm)
 
     # Compute figure size in points, mapped directly to Plots size.
     default_wpt = column === :double ? 490.0 : 245.0
@@ -189,7 +189,7 @@ function paper_plot_kwargs(; column::Symbol=:single,
 
     # Optional compact margins
     if tight
-        left_margin = -1.7mm; right_margin = -1mm; top_margin = -1mm; bottom_margin = -1.3mm
+        left_margin = -1mm; right_margin = -1mm; top_margin = -1mm; bottom_margin = -0.6mm
     end
 
     return (

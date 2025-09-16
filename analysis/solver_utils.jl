@@ -1,4 +1,5 @@
 using FOMPrototypes, DataFrames, JLD2, Glob, Statistics, Plots
+using Base: AbstractSet
 using FOMPrototypesBenchmarks
 
 # Modular utilities to load, aggregate, and profile solver results.
@@ -7,6 +8,35 @@ using FOMPrototypesBenchmarks
 include(joinpath(@__DIR__, "spmv_utils.jl"))
 
 const RUN_PARAM_KEYS = ["global-timeout", "max-k-operator", "rel-kkt-tol"]
+
+# Normalize arbitrary selector data (method traits or run params) to
+# Dict{String,Vector{String}} with hyphenated keys and string values.
+function _normalize_selector(sel)
+    sel === nothing && return nothing
+    dict = Dict{String,Vector{String}}()
+    pairs_iter = sel isa NamedTuple ? pairs(sel) : sel
+    if !(sel isa Dict || sel isa AbstractVector{<:Pair} || sel isa NamedTuple)
+        error("Unsupported selector type: $(typeof(sel))")
+    end
+    for (k, v_raw) in pairs_iter
+        ks = k isa Symbol ? replace(String(k), '_' => '-') : String(k)
+        is_vector_value = (v_raw isa AbstractVector) && !(v_raw isa AbstractString)
+        values = is_vector_value ? v_raw : (v_raw,)
+        dict[ks] = [string(v) for v in values]
+    end
+    return dict
+end
+
+function _normalize_problem_sets(ps)
+    ps === nothing && return nothing
+    if ps isa AbstractString || ps isa Symbol
+        return [String(ps)]
+    elseif ps isa Tuple || ps isa AbstractVector || ps isa AbstractSet
+        return [String(v) for v in ps]
+    else
+        error("Unsupported problem_sets type: $(typeof(ps))")
+    end
+end
 
 # Normalize run-parameter selectors to Dict{String,Any} with hyphenated keys
 function _normalize_run_params(rp)
@@ -43,19 +73,111 @@ function _run_params_id_for(rp_norm::Dict{String,Any})
     return FOMPrototypesBenchmarks.run_params_id(cfg)
 end
 
+function _selector_matches(sel::Dict{String,Vector{String}}, candidate::Dict{String,String})
+    for (k, vs) in sel
+        if !haskey(candidate, k)
+            return false
+        end
+        if !(candidate[k] in vs)
+            return false
+        end
+    end
+    return true
+end
+
 # Find result files by variant and optional run-parameter selector under the default results/ folder.
 function find_result_files(; variant::Union{Symbol,String}=:ADMM,
     run_params=nothing,
-    root::AbstractString=joinpath(dirname(@__DIR__), "results"))
+    root::AbstractString=joinpath(dirname(@__DIR__), "results"),
+    problem_sets=nothing)
     v = String(variant)
     rp_norm = _normalize_run_params(run_params)
+    ps_norm = _normalize_problem_sets(problem_sets)
     if rp_norm === nothing
-        # layout: .../<ps>/<pn>/<method_id>/<run_params_id>/rep*.jld2
-        return glob("*/*/*$v*/*/rep*.jld2", "$root/")
+        if ps_norm === nothing
+            # layout: .../<ps>/<pn>/<method_id>/<run_params_id>/rep*.jld2
+            return glob("*/*/*$v*/*/rep*.jld2", "$root/")
+        else
+            files = String[]
+            for ps in ps_norm
+                append!(files, glob("$ps/*/*$v*/*/rep*.jld2", "$root/"))
+            end
+            return files
+        end
     else
         rid = _run_params_id_for(rp_norm)
-        return glob("*/*/*$v*/$rid/rep*.jld2", "$root/")
+        if ps_norm === nothing
+            return glob("*/*/*$v*/$rid/rep*.jld2", "$root/")
+        else
+            files = String[]
+            for ps in ps_norm
+                append!(files, glob("$ps/*/*$v*/$rid/rep*.jld2", "$root/"))
+            end
+            return files
+        end
     end
+end
+
+# Enumerate available (problem_set, problem_name, method_id, run_params_id)
+# combinations for a variant before loading JLD2 files. Optional selectors can
+# narrow down the runs at the directory level, making it easier to inspect what
+# data is available prior to loading it.
+function index_variant_runs(; variant::Union{Symbol,String}=:ADMM,
+    root::AbstractString=joinpath(dirname(@__DIR__), "results"),
+    method_traits=nothing,
+    run_params=nothing,
+    include_files::Bool=false,
+    problem_sets=nothing)
+
+    variant_str = String(variant)
+    trait_sel = _normalize_selector(method_traits)
+    rp_sel    = _normalize_selector(run_params)
+    ps_sel    = _normalize_problem_sets(problem_sets)
+    rows = NamedTuple[]
+    for method_dir in filter(isdir, glob("*/*/*$variant_str*", "$root/"))
+        parts = splitpath(method_dir)
+        length(parts) < 3 && continue
+        ps, pn, mid = parts[end-2:end]
+        if ps_sel !== nothing && !(ps in ps_sel)
+            continue
+        end
+        method_traits_dict = parse_combo_id(mid)
+        if get(method_traits_dict, "variant", nothing) != variant_str
+            continue
+        end
+        if trait_sel !== nothing && !_selector_matches(trait_sel, method_traits_dict)
+            continue
+        end
+        run_dirs = filter(isdir, readdir(method_dir; join=true))
+        for run_dir in run_dirs
+            rid = basename(run_dir)
+            run_dict = parse_combo_id(rid)
+            if rp_sel !== nothing && !_selector_matches(rp_sel, run_dict)
+                continue
+            end
+            rep_files = sort(glob("rep*.jld2", joinpath(run_dir, "")))
+            isempty(rep_files) && continue
+            files_col = include_files ? rep_files : missing
+            push!(rows, (
+                problem_set   = ps,
+                problem_name  = pn,
+                method_id     = mid,
+                run_params_id = rid,
+                method_path   = method_dir,
+                run_path      = run_dir,
+                n_reps        = length(rep_files),
+                files         = files_col,
+            ))
+        end
+    end
+    df = DataFrame(rows)
+    isempty(df) && return df
+    add_trait_columns!(df)
+    add_run_param_columns!(df)
+    if !include_files
+        select!(df, Not(:files))
+    end
+    return df
 end
 
 # Parse a single JLD2 result file into a NamedTuple row.
@@ -91,9 +213,15 @@ end
 function load_results(; variant::Union{Symbol,String}=:ADMM,
     run_params=nothing,
     files::Union{Nothing,Vector{<:AbstractString}}=nothing,
-    root::AbstractString=joinpath(dirname(@__DIR__), "results"))
-    fs = isnothing(files) ? find_result_files(variant=variant, run_params=run_params, root=root) : files
-    return DataFrame(map(load_row, fs))
+    root::AbstractString=joinpath(dirname(@__DIR__), "results"),
+    problem_sets=nothing)
+    fs = isnothing(files) ? find_result_files(variant=variant, run_params=run_params, root=root, problem_sets=problem_sets) : files
+    ps_norm = _normalize_problem_sets(problem_sets)
+    if ps_norm !== nothing
+        fs = [f for f in fs if splitpath(f)[end-4] in ps_norm]
+    end
+    rows = map(load_row, fs)
+    return isempty(rows) ? DataFrame() : DataFrame(rows)
 end
 
 # helper: parse a method‐ID of the form "k1=v1_k2=v2_…"
@@ -133,20 +261,62 @@ end
 
 # Aggregate replicates to one row per (problem_set, problem_name, method_id, run_params_id).
 function aggregate_replicates(df::DataFrame)
-    combine(groupby(df, [:problem_set, :problem_name, :method_id, :run_params_id]),
-        :k_final          => minimum => :min_k_final,
-        :k_operator_final => minimum => :min_k_operator_final,
-        :setup_time       => median  => :μ_setup_time,
-        :setup_time       => std     => :σ_setup_time,
-        :setup_time       => minimum => :min_setup_time,
-        :solver_time      => median  => :median_solver_time,
-        :solver_time      => std     => :σ_solver_time,
-        :solver_time      => minimum => :min_solver_time,
-        :total_time       => median  => :median_total_time,
-        :total_time       => std     => :σ_total_time,
-        :total_time       => minimum => :min_total_time,
-        :status           => (sts -> count(sts .== :loop_timeout .|| sts .== :global_timeout)) => :n_timeouts,
-    )
+    isempty(df) && return DataFrame()
+    groups = groupby(df, [:problem_set, :problem_name, :method_id, :run_params_id])
+    rows = NamedTuple[]
+    for g in groups
+        solved_mask = g.status .== :kkt_solved
+        solved = view(g, solved_mask, :)
+        # if not solved at all, set these markers appropriately
+        # eg "time to solve = infty" and so on
+        if isempty(solved)
+            min_k_final = Inf
+            min_k_operator_final = Inf
+            median_solver_time = Inf
+            σ_solver_time = NaN
+            min_solver_time = Inf
+            median_total_time = Inf
+            σ_total_time = NaN
+            min_total_time = Inf
+        else
+            min_k_final = minimum(solved.k_final)
+            min_k_operator_final = minimum(solved.k_operator_final)
+            median_solver_time = median(solved.solver_time)
+            σ_solver_time = std(solved.solver_time)
+            min_solver_time = minimum(solved.solver_time)
+            median_total_time = median(solved.total_time)
+            σ_total_time = std(solved.total_time)
+            min_total_time = minimum(solved.total_time)
+        end
+        # note that we let the SETUP time remain regardless.
+        # rationale is that we won't make a performance profile
+        # based on the setup time, and it can still be useful
+        # information to read in aggregate
+        μ_setup_time = median(g.setup_time)
+        σ_setup_time = std(g.setup_time)
+        min_setup_time = minimum(g.setup_time)
+
+        n_timeouts = count(st -> st == :loop_timeout || st == :global_timeout, g.status)
+        push!(rows, (
+            problem_set = g.problem_set[1],
+            problem_name = g.problem_name[1],
+            method_id = g.method_id[1],
+            run_params_id = g.run_params_id[1],
+            min_k_final = min_k_final,
+            min_k_operator_final = min_k_operator_final,
+            μ_setup_time = μ_setup_time,
+            σ_setup_time = σ_setup_time,
+            min_setup_time = min_setup_time,
+            median_solver_time = median_solver_time,
+            σ_solver_time = σ_solver_time,
+            min_solver_time = min_solver_time,
+            median_total_time = median_total_time,
+            σ_total_time = σ_total_time,
+            min_total_time = min_total_time,
+            n_timeouts = n_timeouts,
+        ))
+    end
+    return DataFrame(rows)
 end
 
 # Compute method labels and a title string from method IDs.
@@ -156,12 +326,12 @@ function build_labels(ids::AbstractVector{<:AbstractString})
     for id in ids
         d = parse_combo_id(id)
         lbl = ""
-        if haskey(d, "accel-memory");           lbl *= "mem=$(d["accel-memory"])"; end
-        if haskey(d, "krylov-tries-per-mem");    lbl *= " $(d["krylov-tries-per-mem"])"; end
-        if haskey(d, "acceleration");            lbl *= " $(d["acceleration"])"; end
-        if haskey(d, "anderson-interval");       lbl *= " $(d["anderson-interval"])"; end
-        if haskey(d, "anderson-mem-type");       lbl *= " $(d["anderson-mem-type"])"; end
-        if haskey(d, "variant");                 push!(variants, d["variant"]); end
+        if haskey(d, "acceleration");         lbl *= "$(d["acceleration"])"; end
+        if haskey(d, "accel-memory");         lbl *= " mem=$(d["accel-memory"])"; end
+        if haskey(d, "krylov-tries-per-mem"); lbl *= " $(d["krylov-tries-per-mem"])"; end
+        if haskey(d, "anderson-interval");    lbl *= " $(d["anderson-interval"])"; end
+        if haskey(d, "anderson-mem-type");    lbl *= " $(d["anderson-mem-type"])"; end
+        if haskey(d, "variant");              push!(variants, d["variant"]); end
         push!(labels, lbl)
     end
     title_str = !isempty(variants) ? ("Variants: " * join(unique(variants), ", ")) : ""
@@ -201,28 +371,34 @@ function plot_performance_profile(perf::DataFrame;
     labels::Union{Nothing,AbstractMatrix{<:AbstractString}}=nothing,
     title::AbstractString="",
     xlabel::AbstractString="τ = mᵢ / minⱼ mⱼ",
-    ylabel::AbstractString="Fraction of problems",
+    ylabel::AbstractString="Fraction solved",
     legend=:bottomright,
-    lw::Real=1.5,
     linealpha::Real=1.0,
-    xlims=nothing,
-    ylims=(0, 1.0),
+    xlims=(1.0, Inf),
+    ylims=(0, 1.05),
     outfile::Union{Nothing,AbstractString}=nothing,
     plotkwargs...)
 
     ys = Matrix(perf[:, Not(:τ)])
     labmat = (labels === nothing ? reshape([names(perf)[2:end]...], 1, :) : labels)
+    kwargs = Dict{Symbol,Any}(plotkwargs)
+    if !haskey(kwargs, :linestyle)
+        base_styles = [:solid, :dash, :dot, :dashdot, :dashdotdot]
+        n_series = size(ys, 2)
+        repeats = max(1, ceil(Int, n_series / length(base_styles)))
+        kwargs[:linestyle] = repeat(base_styles, repeats)[1:n_series]
+    end
+
     plt = plot(perf.τ, ys;
         xlabel=xlabel,
         ylabel=ylabel,
         label=labmat,
         legend=legend,
         title=title,
-        linewidth=lw,
         alpha=linealpha,
         xlims=xlims,
         ylims=ylims,
-        plotkwargs...)
+        kwargs...)
 
     if outfile !== nothing
         save_pdf(plt, String(outfile))
@@ -242,10 +418,11 @@ function make_profile(
     root::AbstractString=joinpath(dirname(@__DIR__), "results"),
     success_col::Symbol=:n_timeouts,
     success_ok = (x)->(x == 0),
+    problem_sets=nothing,
 )
-    df = load_results(variant=variant, run_params=run_params, root=root)
+    df = load_results(variant=variant, run_params=run_params, root=root, problem_sets=problem_sets)
     if isempty(df)
-        error("No results found for variant=$(variant) and run_params=$(run_params)")
+        error("No results found for variant=$(variant), run_params=$(run_params), problem_sets=$(problem_sets)")
     end
     add_trait_columns!(df)
     add_run_param_columns!(df)
@@ -263,11 +440,12 @@ function plot_profile_for(
     root::AbstractString=joinpath(dirname(@__DIR__), "results"),
     success_col::Symbol=:n_timeouts,
     success_ok = (x)->(x == 0),
-    xlabel::AbstractString = (metric == :min_total_time ? "τ = timeᵢ / minⱼ timeⱼ" : "τ = mᵢ / minⱼ mⱼ"),
-    ylabel::AbstractString = "Fraction of problems",
+    xlabel::AbstractString = (metric == :min_total_time ? "Performance ratio "*L"\tau" : "τ = mᵢ / minⱼ mⱼ"),
+    ylabel::AbstractString = "Fraction solved",
     outfile::Union{Nothing,AbstractString}=nothing,
+    problem_sets=nothing,
     plotkwargs...)
-    prof = make_profile(variant; run_params=run_params, metric=metric, taus=taus, root=root, success_col=success_col, success_ok=success_ok)
+    prof = make_profile(variant; run_params=run_params, metric=metric, taus=taus, root=root, success_col=success_col, success_ok=success_ok, problem_sets=problem_sets)
     return plot_performance_profile(prof.perf;
         labels=prof.labels,
         title=prof.title,
