@@ -7,7 +7,6 @@ using Statistics
 using Plots
 using LaTeXStrings
 using Measures
-using LaTeXStrings
 
 """
     load_spmv_results(; root="results_spmv") -> DataFrame
@@ -64,35 +63,28 @@ Columns in the output:
   time_real_s, time_complex_s, ratio_cr
 """
 function ratios_by_op(df::DataFrame)
-    # pivot by vec real/complex then compute ratios
+    # pivot by vec real/complex then compute ratios (keep simple and robust)
     g = groupby(df, [:problem_set, :problem_name, :matrix, :op])
     rows = NamedTuple[]
+    first_or_missing(v) = isempty(v) ? missing : v[1]
     for sub in g
-        # Expect up to two rows per group: vec in {real, complex}
-        # Use a helper to avoid errors when group is missing one of them
-        _first_or_missing(v) = isempty(v) ? missing : v[1]
-        t_real    = _first_or_missing(sub[sub.vec .== "real", :time_s])
-        t_complex = _first_or_missing(sub[sub.vec .== "complex", :time_s])
-
-        m = first(sub.m)
-        n = first(sub.n)
-        nnz = first(sub.nnz)
-        dens = first(sub.density)
+        t_real    = first_or_missing(sub[sub.vec .== "real", :time_s])
+        t_complex = first_or_missing(sub[sub.vec .== "complex", :time_s])
 
         ratio = (t_real isa Missing || t_complex isa Missing) ? missing : t_complex / t_real
 
         push!(rows, (
-            problem_set = first(sub.problem_set),
-            problem_name= first(sub.problem_name),
-            matrix      = first(sub.matrix),
-            op          = first(sub.op),
-            m           = m,
-            n           = n,
-            nnz         = nnz,
-            density     = dens,
-            time_real_s = t_real,
-            time_complex_s = t_complex,
-            ratio_cr    = ratio,
+            problem_set   = first(sub.problem_set),
+            problem_name  = first(sub.problem_name),
+            matrix        = first(sub.matrix),
+            op            = first(sub.op),
+            m             = first(sub.m),
+            n             = first(sub.n),
+            nnz           = first(sub.nnz),
+            density       = first(sub.density),
+            time_real_s   = t_real,
+            time_complex_s= t_complex,
+            ratio_cr      = ratio,
         ))
     end
     return DataFrame(rows)
@@ -184,27 +176,24 @@ function paper_plot_kwargs(; column::Symbol=:single,
         left_margin=4mm, right_margin=2mm,
         top_margin=2mm, bottom_margin=3mm)
 
-    # Point (pt) units
-    default_width_pt = column === :double ? (245.0*2) : 245.0
-    wpt = width_pt === nothing ? default_width_pt : float(width_pt)
-    hpt = height_pt === nothing ? aspect * wpt : float(height_pt)
-    # Use point dimensions directly as Plots size for vector exports.
-    wpx = Int(round(wpt))
-    hpx = Int(round(hpt))
+    # Compute figure size in points, mapped directly to Plots size.
+    default_wpt = column === :double ? 490.0 : 245.0
+    wpt = float(something(width_pt, default_wpt))
+    hpt = float(something(height_pt, aspect * wpt))
+    size_px = (Int(round(wpt)), Int(round(hpt)))
 
-    # Resolve font sizes
-    tickfs   = something(tickfontsize, max(6, round(Int, 0.85 * fontsize)))
-    legendfs = something(legendfontsize, fontsize)
-    titlefs  = something(titlefontsize, round(Int, 1.1 * fontsize))
+    # Font sizes (keep sensible defaults, allow overrides)
+    tickfs   = Int(round(something(tickfontsize, 0.85 * fontsize)))
+    legendfs = Int(round(something(legendfontsize, fontsize)))
+    titlefs  = Int(round(something(titlefontsize, 1.1 * fontsize)))
 
-    # Optionally tighten margins
+    # Optional compact margins
     if tight
-        left_margin = -2mm; right_margin = -1mm; top_margin = -1mm; bottom_margin = -2mm
+        left_margin = -1.7mm; right_margin = -1mm; top_margin = -1mm; bottom_margin = -1.3mm
     end
 
-    # Build kwargs NamedTuple
     return (
-        size = (wpx, hpx),
+        size = size_px,
         guidefont = Plots.font(fontsize, fontfamily),
         tickfont = Plots.font(tickfs, fontfamily),
         legendfont = Plots.font(legendfs, fontfamily),
@@ -335,24 +324,17 @@ function plot_scatter_by_group(df::DataFrame; x::Symbol=:density, y::Symbol=:rat
 
     # Optionally tighten axes to data bounds with a small padding
     if tight_axis && !isempty(dfp)
-        if !haskey(plotkwargs, :xlims)
-            xmin, xmax = extrema(dfp[:, x])
-            if xmin == xmax
-                δ = (abs(xmin) > 0 ? 0.01 * abs(xmin) : 1.0)
-                xmin -= δ; xmax += δ
+        padded_limits(v) = begin
+            lo, hi = extrema(v)
+            if lo == hi
+                δ = (abs(lo) > 0 ? 0.01 * abs(lo) : 1.0)
+                lo -= δ; hi += δ
             end
-            pad = (xmax - xmin) * pad_frac
-            xlims!(plt, (xmin - pad, xmax + pad))
+            pad = (hi - lo) * pad_frac
+            (lo - pad, hi + pad)
         end
-        if !haskey(plotkwargs, :ylims)
-            ymin, ymax = extrema(dfp[:, y])
-            if ymin == ymax
-                δ = (abs(ymin) > 0 ? 0.01 * abs(ymin) : 1.0)
-                ymin -= δ; ymax += δ
-            end
-            pad = (ymax - ymin) * pad_frac
-            ylims!(plt, (ymin - pad, ymax + pad))
-        end
+        !haskey(plotkwargs, :xlims) && xlims!(plt, padded_limits(dfp[:, x]))
+        !haskey(plotkwargs, :ylims) && ylims!(plt, padded_limits(dfp[:, y]))
     end
 
     if outfile !== nothing
@@ -378,6 +360,82 @@ function plot_ratio_vs(df_ratio::DataFrame; x::Symbol=:density, by_op::Bool=true
         markersize=markersize, alpha=alpha, xscale=xscale, yscale=yscale,
         xlabel=String(x), ylabel="complex / real time", legend=legend,
         title=isnothing(title) ? "" : title, outfile=outfile, plotkwargs...)
+end
+
+"""
+    plot_hist_by_group(df; value=:ratio_cr, group=:op, bins=nothing,
+                       normalize=:none, alpha=0.7, legend=:best, title=nothing,
+                       xlabel=nothing, ylabel=nothing, outfile=nothing,
+                       use_latex_op_labels=true)
+
+Generic histogram helper for a single value column, optionally grouped into
+overlaid series (e.g., by op). Returns the Plots.jl plot object.
+"""
+function plot_hist_by_group(df::DataFrame; value::Symbol=:ratio_cr,
+        group::Union{Symbol,Nothing}=:op, bins=nothing,
+        normalize::Symbol=:none, alpha::Real=0.7, legend=:best, title=nothing,
+        xlabel=nothing, ylabel=nothing,
+        outfile::Union{Nothing,AbstractString}=nothing,
+        use_latex_op_labels::Bool=true, plotkwargs...)
+
+    @assert hasproperty(df, value) "DataFrame is missing column $(value)"
+    if group !== nothing
+        @assert hasproperty(df, group) "DataFrame is missing group column $(group)"
+    end
+
+    # filter out rows with missing values
+    mask = .!ismissing.(df[:, value])
+    dfp = df[mask, :]
+
+    xlabel === nothing && (xlabel = String(value))
+    if ylabel === nothing
+        ylabel = normalize === :none ? "count" : String(normalize)
+    end
+
+    plt = plot(legend=legend, title=title; plotkwargs...)
+
+    hist!(v; lbl) = begin
+        if bins === nothing
+            histogram!(plt, v; alpha=alpha, normalize=normalize, label=lbl,
+                xlabel=xlabel, ylabel=ylabel, plotkwargs...)
+        else
+            histogram!(plt, v; bins=bins, alpha=alpha, normalize=normalize, label=lbl,
+                xlabel=xlabel, ylabel=ylabel, plotkwargs...)
+        end
+    end
+
+    if group === nothing
+        hist!(dfp[:, value]; lbl="")
+    else
+        groups = unique(dfp[:, group])
+        for gval in groups
+            sub = dfp[dfp[:, group] .== gval, :]
+            lab = group === :op ? op_label(gval; latex=use_latex_op_labels) : string(gval)
+            hist!(sub[:, value]; lbl=lab)
+        end
+    end
+
+    if outfile !== nothing
+        out = save_pdf(plt, String(outfile))
+    end
+    return plt
+end
+
+"""
+    plot_ratio_hist(df_ratio; by_op=true, bins=nothing, normalize=:none,
+                    alpha=0.7, legend=:best, title=nothing, outfile=nothing)
+
+Compatibility wrapper to plot histograms of complex/real time ratios.
+"""
+function plot_ratio_hist(df_ratio::DataFrame; by_op::Bool=true, bins=nothing,
+        normalize::Symbol=:none, alpha::Real=0.7, legend=:best, title=nothing,
+        outfile::Union{Nothing,AbstractString}=nothing, plotkwargs...)
+
+    group = by_op ? :op : nothing
+    return plot_hist_by_group(df_ratio; value=:ratio_cr, group=group, bins=bins,
+        normalize=normalize, alpha=alpha, legend=legend,
+        title=isnothing(title) ? "" : title, xlabel="complex / real time",
+        outfile=outfile, plotkwargs...)
 end
 
 """
