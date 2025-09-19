@@ -17,12 +17,14 @@ st = paper_plot_kwargs(
 out_dir = joinpath(dirname(@__DIR__), "analysis", "figs", "solver")
 mkpath(out_dir)
 
+prof_type = :absolute # relative or absolute
+
 # selection knobs
 chosen_problem_sets = [
-    # "sslsq",
+    "sslsq",
     # "maros",
     # "mpc",
-    "netlib_feasible",
+    # "netlib_feasible",
 ]
 
 run_params = (
@@ -79,32 +81,36 @@ add_run_param_columns!(df)
 # 3. Aggregate the replicates and prepare the profile metric.
 agg = aggregate_replicates(df)
 perf_time = performance_profile(
-    agg;
+    agg,
+    prof_type;
     metric=:min_total_time,
-    taus=1.0:0.1:15,
+    # taus=1.0:0.1:1000,
 )
 labels, title = build_labels(String.(names(perf_time)[2:end]), unwanted_label_keys, nothing)
 
 perf_kop = performance_profile(
-    agg;
+    agg,
+    prof_type;
     metric=:min_k_operator_final,
-    taus=0.1:0.1:15,
+    # taus=0.1:0.1:1000,
 )
 labels, title = build_labels(String.(names(perf_kop)[2:end]), unwanted_label_keys, nothing)
 
+prof_type_tag = "$prof_type"
 ps_tag = isempty(chosen_problem_sets) ? "all" : join(chosen_problem_sets, "-")
 rp_tag = "gt$(run_params.global_timeout)_k$(run_params.max_k_operator)_tol$(run_params.rel_kkt_tol)"
-fname_suffix = "$(ps_tag)_$(rp_tag)"
+fname_suffix = "$(prof_type)_$(ps_tag)_$(rp_tag)"
 
 # create plots
 plt_time = plot_performance_profile(
-    perf_time;
+    perf_time,
+    prof_type;
     labels=labels,
     title=title,
     xlabel="Time performance ratio " * L"\tau",
     legend=:bottomright,
-    ylims=(0, 1.05),
-    xlims=(1.0, Inf),
+    # ylims=(0, 1.05),
+    # xlims=(1e-6, Inf),
     xscale=:log10,
     outfile=joinpath(out_dir, "admm-time-profile-$(fname_suffix).pdf"),
     st...,
@@ -112,13 +118,14 @@ plt_time = plot_performance_profile(
 display(plt_time)
 
 plt_kop = plot_performance_profile(
-    perf_kop;
+    perf_kop,
+    prof_type;
     labels=labels,
     title=title,
     xlabel="Iterations performance ratio " * L"\tau",
     legend=:bottomright,
-    ylims=(0, 1.05),
-    xlims=(1.0, Inf),
+    # ylims=(0, 1.05),
+    # xlims=(1e-6, Inf),
     xscale=:log10,
     outfile=joinpath(out_dir, "admm-iter-profile-$(fname_suffix).pdf"),
     st...,
