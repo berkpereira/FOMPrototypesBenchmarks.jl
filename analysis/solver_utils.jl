@@ -9,6 +9,16 @@ include(joinpath(@__DIR__, "spmv_utils.jl"))
 
 const RUN_PARAM_KEYS = ["global-timeout", "max-k-operator", "rel-kkt-tol"]
 
+# return vector range of geometrically uniformly
+# spaced points, like MATLAB's logspace
+function logspace(
+    start_value::AbstractFloat,
+    end_value::AbstractFloat,
+    no_vals::Integer,
+)
+    return exp.(range(log(start_value), log(end_value), length=no_vals))
+end
+
 # Normalize arbitrary selector data (method traits or run params) to
 # Dict{String,Vector{String}} with hyphenated keys and string values.
 function _normalize_selector(sel)
@@ -351,49 +361,96 @@ end
 # Generic performance-profile computation on a chosen metric column.
 # metric must be a Symbol of a column present in agg_df, e.g. :min_total_time or :min_k_operator_final.
 function performance_profile(
-    agg_df::DataFrame;
+    agg_df::DataFrame,
+    prof_type::Symbol; # :relative or :absolute
     metric::Symbol=:min_total_time,
-    taus=0.9:0.1:100,
+    taus=nothing,
 )
 
-    # Best per (problem, run_params_id) on the chosen metric to avoid mixing runs
-    # best has no method_id column --- simply reports best of the metric in each problem.
-    # if some problem was not solved by any solver, iter count or time in best
-    # is Inf
-    best = combine(groupby(agg_df, [:problem_set, :problem_name, :run_params_id]), metric => minimum => :best)
+    # collect unique method_id values
+    methods = unique(String.(agg.method_id)) 
     
-    # agg2 is agg plus this new "best" column
-    agg2 = leftjoin(agg_df, best, on=[:problem_set, :problem_name, :run_params_id])
-    # add yet another col to agg2, with ratio of metric (eg min solve time) versus best out of all methods.
-    # if a problem was unsolved by all methods, ratio is (usually) NaN here.
-    agg2.ratio = agg2[!, metric] ./ agg2.best
+    if prof_type == :relative
+        # Best per (problem, run_params_id) on the chosen metric to avoid mixing runs
+        # best has no method_id column --- simply reports best of the metric in each problem.
+        # if some problem was not solved by any solver, iter count or time in best
+        # is Inf
+        best = combine(groupby(agg_df, [:problem_set, :problem_name, :run_params_id]), metric => minimum => :best)
+        
+        # agg2 is agg plus this new "best" column
+        agg2 = leftjoin(agg_df, best, on=[:problem_set, :problem_name, :run_params_id])
+        # add yet another col to agg2, with ratio of metric (eg min solve time) versus best out of all methods.
+        # if a problem was unsolved by all methods, ratio is (usually) NaN here.
+        agg2.ratio = agg2[!, metric] ./ agg2.best
 
-    methods = unique(String.(agg2.method_id)) # collect unique method_id values
-    perf = DataFrame(τ = collect(taus)) # just column with tau values for now
-    for m in methods
-        sub = @view agg2[agg2.method_id .== m, :] # only rows of agg2 relative to this method
-        # create column in profile for this method.
-        # input to mean is bit vector --- for a given tau, valued 1 if sub_ratio
-        perf[!, m] = [ 
-        mean((sub.ratio .<= τ))
-        for τ in taus
-        ]
+        # assign range of 500 tau values from 1 up to 1.1 times
+        # the max ratio in the series
+        if isnothing(taus)
+            taus = logspace(1.0, 1.1 * maximum(filter(isfinite, agg2.ratio)), 500)
+        end
+
+        perf = DataFrame(τ = collect(taus)) # just column with tau values for now
+        for m in methods
+            sub = @view agg2[agg2.method_id .== m, :] # only rows of agg2 relative to this method
+            # create column in profile for this method.
+            # input to mean is bit vector --- for a given tau, valued 1 if sub_ratio
+            perf[!, m] = [
+                mean(sub.ratio .<= τ)
+                for τ in taus
+            ]
+        end
+    elseif prof_type == :absolute
+        if isnothing(taus)
+            
+            taus = logspace(
+                0.9*minimum(filter(isfinite, agg[!, metric])),
+                1.1*maximum(filter(isfinite, agg[!, metric])),
+                500
+            )
+            println("Minimum of taus is $(minimum(taus))")
+            println("Maximum of taus is $(maximum(taus))")
+            println()
+        end
+
+        perf = DataFrame(τ = collect(taus)) # just column with tau values for now
+        for m in methods
+            sub = @view agg[agg.method_id .== m, :] # only rows of agg relative to this method
+            perf[!, m] = [
+                mean(sub[!, metric] .<= τ)
+                for τ in taus
+            ]
+        end
+    else
+        @error "Unrecognised profile type: $prof_type."
     end
+    
     return perf
 end
 
 # Plot a performance profile DataFrame returned by performance_profile.
-function plot_performance_profile(perf::DataFrame;
+function plot_performance_profile(
+    perf::DataFrame,
+    prof_type::Symbol;
     labels::Union{Nothing,AbstractMatrix{<:AbstractString}}=nothing,
     title::AbstractString="",
     xlabel::AbstractString="τ = mᵢ / minⱼ mⱼ",
     ylabel::AbstractString="Fraction solved",
     legend=:bottomright,
     linealpha::Real=1.0,
-    xlims=(1.0, Inf),
+    xlims=nothing,
     ylims=(0, 1.05),
     outfile::Union{Nothing,AbstractString}=nothing,
-    plotkwargs...)
+    plotkwargs...
+)
+    if isnothing(xlims)
+        if prof_type == :relative
+            xlims = (1.0, maximum(perf[!, :τ]))
+        elseif prof_type == :absolute
+            xlims = (0.95*minimum(perf[!, :τ]), maximum(perf[!, :τ]))
+        else
+            @error "Unrecognised profile type: $prof_type"
+        end
+    end
 
     ys = Matrix(perf[:, Not(:τ)])
     labmat = (labels === nothing ? reshape([names(perf)[2:end]...], 1, :) : labels)
@@ -431,7 +488,8 @@ function make_profile(
     variant::Union{Symbol,String};
     run_params=nothing,
     metric::Symbol=:min_total_time,
-    taus=0.9:0.1:100,
+    prof_type::Symbol, # :relative or :absolute
+    taus=nothing,
     root::AbstractString=joinpath(dirname(@__DIR__), "results"),
     success_ok = (x)->(x == 0),
     problem_sets=nothing,
@@ -443,31 +501,9 @@ function make_profile(
     add_trait_columns!(df)
     add_run_param_columns!(df)
     agg = aggregate_replicates(df)
-    perf = performance_profile(agg; metric=metric, taus=taus, success_ok=success_ok)
+    perf = performance_profile(agg, prof_type; metric=metric, taus=taus, success_ok=success_ok)
     labels, title = build_labels(String.(names(perf)[2:end]))
     return (perf=perf, labels=labels, title=title, agg=agg, df=df)
-end
-
-function plot_profile_for(
-    variant::Union{Symbol,String};
-    run_params=nothing,
-    metric::Symbol=:min_total_time,
-    taus=0.9:0.1:100,
-    root::AbstractString=joinpath(dirname(@__DIR__), "results"),
-    success_ok = (x)->(x == 0),
-    xlabel::AbstractString = (metric == :min_total_time ? "Performance ratio "*L"\tau" : "τ = mᵢ / minⱼ mⱼ"),
-    ylabel::AbstractString = "Fraction solved",
-    outfile::Union{Nothing,AbstractString}=nothing,
-    problem_sets=nothing,
-    plotkwargs...)
-    prof = make_profile(variant; run_params=run_params, metric=metric, taus=taus, root=root, success_ok=success_ok, problem_sets=problem_sets)
-    return plot_performance_profile(prof.perf;
-        labels=prof.labels,
-        title=prof.title,
-        xlabel=xlabel,
-        ylabel=ylabel,
-        outfile=outfile,
-        plotkwargs...)
 end
 
 # Example usage (kept minimal). Run this file directly to test defaults.
@@ -487,7 +523,7 @@ function example_workflow()
 
     # Or prepare data once and plot multiple metrics
     prof = make_profile(:ADMM; run_params=(global_timeout=Inf, max_k_operator=3000, rel_kkt_tol=1e-9))
-    perf_kop = performance_profile(prof.agg; metric=:min_k_operator_final)
+    perf_kop = performance_profile(prof.agg, :relative; metric=:min_k_operator_final)
     plt_kop = plot_performance_profile(perf_kop;
         labels=prof.labels,
         title=prof.title,
