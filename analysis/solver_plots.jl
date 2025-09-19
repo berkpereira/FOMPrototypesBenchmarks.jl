@@ -21,9 +21,9 @@ prof_type = :absolute # relative or absolute
 
 # selection knobs
 chosen_problem_sets = [
-    "sslsq",
+    # "sslsq",
     # "maros",
-    # "mpc",
+    "mpc",
     # "netlib_feasible",
 ]
 
@@ -104,11 +104,11 @@ fname_suffix = "$(prof_type)_$(ps_tag)_$(rp_tag)"
 # create plots
 plt_time = plot_performance_profile(
     perf_time,
-    prof_type;
+    prof_type,
+    :min_total_time;
     labels=labels,
     title=title,
-    xlabel="Time performance ratio " * L"\tau",
-    legend=:bottomright,
+    legend=:topleft,
     # ylims=(0, 1.05),
     # xlims=(1e-6, Inf),
     xscale=:log10,
@@ -119,11 +119,11 @@ display(plt_time)
 
 plt_kop = plot_performance_profile(
     perf_kop,
-    prof_type;
+    prof_type,
+    :min_k_operator_final;
     labels=labels,
     title=title,
-    xlabel="Iterations performance ratio " * L"\tau",
-    legend=:bottomright,
+    legend=:topleft,
     # ylims=(0, 1.05),
     # xlims=(1e-6, Inf),
     xscale=:log10,
