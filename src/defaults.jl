@@ -28,7 +28,7 @@ const DEFAULT_SOLVER_ARGS = Dict{String,Any}(
     #######
     "max-iter"              => 50_000, # only has an effect for no acceleration!
     "max-k-operator"        => 50_000, # only has an effect for accelerated (Krylov/Anderson)!
-    "rel-kkt-tol"           => 1e-3,
+    "rel-kkt-tol"           => 1e-6,
     "print-mod"             => Inf,
     "print-res-rel"         => true,
     "show-vlines"           => false,
