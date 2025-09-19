@@ -5,7 +5,7 @@ const DEFAULT_SOLVER_ARGS = Dict{String,Any}(
     # method‐defining defaults
     "variant"               => :ADMM,
     "res-norm"              => Inf,
-    "rho"                   => 1.0,
+    "rho"                   => 0.1, # OSQP starts with 0.1
     "theta"                 => 1.0,
     
     "acceleration"          => :none,
@@ -26,11 +26,10 @@ const DEFAULT_SOLVER_ARGS = Dict{String,Any}(
     #######
     # MAKE SURE max-iter AND max-k-operator EQUAL
     #######
-    
     "max-iter"              => 50_000, # only has an effect for no acceleration!
     "max-k-operator"        => 50_000, # only has an effect for accelerated (Krylov/Anderson)!
-    "rel-kkt-tol"           => 1e-9,
-    "print-mod"             => 10_000,
+    "rel-kkt-tol"           => 1e-3,
+    "print-mod"             => Inf,
     "print-res-rel"         => true,
     "show-vlines"           => false,
     "run-fast"              => true,
