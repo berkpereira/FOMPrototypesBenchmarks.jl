@@ -320,21 +320,30 @@ function aggregate_replicates(df::DataFrame)
 end
 
 # Compute method labels and a title string from method IDs.
-function build_labels(ids::AbstractVector{<:AbstractString})
+function build_labels(
+    ids::AbstractVector{<:AbstractString},
+    unwanted_label_keys::AbstractVector{<:AbstractString}=nothing,
+    problem_sets::Union{AbstractVector{<:AbstractString}, Nothing}=nothing,
+)
+    if isnothing(unwanted_label_keys); unwanted_label_keys = [""]; end
+    
     labels = String[]
     variants = String[]
     for id in ids
         d = parse_combo_id(id)
         lbl = ""
-        if haskey(d, "acceleration");         lbl *= "$(d["acceleration"])"; end
-        if haskey(d, "accel-memory");         lbl *= " mem=$(d["accel-memory"])"; end
-        if haskey(d, "krylov-tries-per-mem"); lbl *= " $(d["krylov-tries-per-mem"])"; end
-        if haskey(d, "anderson-interval");    lbl *= " $(d["anderson-interval"])"; end
-        if haskey(d, "anderson-mem-type");    lbl *= " $(d["anderson-mem-type"])"; end
-        if haskey(d, "variant");              push!(variants, d["variant"]); end
+        if haskey(d, "acceleration") && !("acceleration" in unwanted_label_keys); lbl *= "$(uppercasefirst(d["acceleration"]))"; end
+        if haskey(d, "accel-memory") && !("accel-memory" in unwanted_label_keys); lbl *= " mem=$(d["accel-memory"])"; end
+        if haskey(d, "krylov-tries-per-mem") && !("krylov-tries-per-mem" in unwanted_label_keys); lbl *= ", tries = $(d["krylov-tries-per-mem"])"; end
+        if haskey(d, "anderson-interval") && !("anderson-interval" in unwanted_label_keys); lbl *= ", interval = $(d["anderson-interval"])"; end
+        if haskey(d, "anderson-mem-type") && !("anderson-mem-type" in unwanted_label_keys); lbl *= ", $(d["anderson-mem-type"]) memory"; end
         push!(labels, lbl)
+        
+        if haskey(d, "variant"); push!(variants, d["variant"]); end
     end
-    title_str = !isempty(variants) ? ("Variants: " * join(unique(variants), ", ")) : ""
+
+    # assign figure title string
+    title_str = !isnothing(problem_sets) ? ("Problem sets: " * join(unique(problem_sets), ", ")) : ""
     # plot wants a matrix of labels
     return reshape(labels, 1, length(labels)), title_str
 end
@@ -386,7 +395,7 @@ function plot_performance_profile(perf::DataFrame;
         base_styles = [:solid, :dash, :dot, :dashdot, :dashdotdot]
         n_series = size(ys, 2)
         repeats = max(1, ceil(Int, n_series / length(base_styles)))
-        kwargs[:linestyle] = repeat(base_styles, repeats)[1:n_series]
+        kwargs[:linestyle] = reshape(repeat(base_styles, repeats)[1:n_series], 1, n_series)
     end
 
     plt = plot(perf.τ, ys;
@@ -398,7 +407,8 @@ function plot_performance_profile(perf::DataFrame;
         alpha=linealpha,
         xlims=xlims,
         ylims=ylims,
-        kwargs...)
+        kwargs...,
+    )
 
     if outfile !== nothing
         save_pdf(plt, String(outfile))
