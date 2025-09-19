@@ -35,3 +35,15 @@ export OMP_NUM_THREADS=1
 julia --project=. bench_driver.jl
 
 echo "[$(date)] solver benchmark job finished"
+
+# send notification including end of error log to ntfy.sh
+NTFY_TOPIC="gabrielpereira-fenway-8bwR6y2O5vL6L2qgPPuC"
+ERROR_FILE="logs/bench_${SLURM_JOB_ID}.err"
+
+curl -d "SLURM job '${SLURM_JOB_NAME}' finished." "ntfy.sh/${NTFY_TOPIC}"
+if [ -s "$ERROR_FILE" ]; then
+    LOG_TAIL=$(tail -n 50 "$ERROR_FILE")
+    curl -H "Title: Error Log for ${SLURM_JOB_NAME}" \
+    -d "$LOG_TAIL" \
+    "ntfy.sh/${NTFY_TOPIC}"
+fi
