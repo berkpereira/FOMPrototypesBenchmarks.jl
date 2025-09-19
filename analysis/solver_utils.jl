@@ -430,10 +430,11 @@ end
 # Plot a performance profile DataFrame returned by performance_profile.
 function plot_performance_profile(
     perf::DataFrame,
-    prof_type::Symbol;
+    prof_type::Symbol,
+    metric::Symbol;
     labels::Union{Nothing,AbstractMatrix{<:AbstractString}}=nothing,
     title::AbstractString="",
-    xlabel::AbstractString="τ = mᵢ / minⱼ mⱼ",
+    xlabel::Union{AbstractString, Nothing}=nothing,
     ylabel::AbstractString="Fraction solved",
     legend=:bottomright,
     linealpha::Real=1.0,
@@ -450,6 +451,22 @@ function plot_performance_profile(
         else
             @error "Unrecognised profile type: $prof_type"
         end
+    end
+
+    if isnothing(xlabel)
+        if prof_type == :relative
+            if metric in [:min_k_operator_final, :min_k_final]
+                xlabel = "Iterations performance ratio " * L"\tau"
+            elseif metric in [:min_total_time, :min_solver_time, :min_setup_time]
+                xlabel = "Time performance ratio " * L"\tau"
+            end
+        elseif prof_type == :absolute
+            if metric in [:min_k_operator_final, :min_k_final]
+                xlabel = "Iterations"
+            elseif metric in [:min_total_time, :min_solver_time, :min_setup_time]
+                xlabel = "Solve time"
+            end
+        end 
     end
 
     ys = Matrix(perf[:, Not(:τ)])
