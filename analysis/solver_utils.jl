@@ -354,22 +354,29 @@ function performance_profile(
     agg_df::DataFrame;
     metric::Symbol=:min_total_time,
     taus=0.9:0.1:100,
-    success_col::Symbol=:n_timeouts,
-    success_ok = (x)->(x == 0)
-    )
+)
 
     # Best per (problem, run_params_id) on the chosen metric to avoid mixing runs
+    # best has no method_id column --- simply reports best of the metric in each problem.
+    # if some problem was not solved by any solver, iter count or time in best
+    # is Inf
     best = combine(groupby(agg_df, [:problem_set, :problem_name, :run_params_id]), metric => minimum => :best)
+    
+    # agg2 is agg plus this new "best" column
     agg2 = leftjoin(agg_df, best, on=[:problem_set, :problem_name, :run_params_id])
+    # add yet another col to agg2, with ratio of metric (eg min solve time) versus best out of all methods.
+    # if a problem was unsolved by all methods, ratio is (usually) NaN here.
     agg2.ratio = agg2[!, metric] ./ agg2.best
 
-    methods = unique(String.(agg2.method_id))
-    perf = DataFrame(τ = collect(taus))
+    methods = unique(String.(agg2.method_id)) # collect unique method_id values
+    perf = DataFrame(τ = collect(taus)) # just column with tau values for now
     for m in methods
-        sub = @view agg2[agg2.method_id .== m, :]
-        perf[!, m] = [
-            mean((sub.ratio .<= τ) .& success_ok.(sub[!, success_col]))
-            for τ in taus
+        sub = @view agg2[agg2.method_id .== m, :] # only rows of agg2 relative to this method
+        # create column in profile for this method.
+        # input to mean is bit vector --- for a given tau, valued 1 if sub_ratio
+        perf[!, m] = [ 
+        mean((sub.ratio .<= τ))
+        for τ in taus
         ]
     end
     return perf
@@ -426,7 +433,6 @@ function make_profile(
     metric::Symbol=:min_total_time,
     taus=0.9:0.1:100,
     root::AbstractString=joinpath(dirname(@__DIR__), "results"),
-    success_col::Symbol=:n_timeouts,
     success_ok = (x)->(x == 0),
     problem_sets=nothing,
 )
@@ -437,7 +443,7 @@ function make_profile(
     add_trait_columns!(df)
     add_run_param_columns!(df)
     agg = aggregate_replicates(df)
-    perf = performance_profile(agg; metric=metric, taus=taus, success_col=success_col, success_ok=success_ok)
+    perf = performance_profile(agg; metric=metric, taus=taus, success_ok=success_ok)
     labels, title = build_labels(String.(names(perf)[2:end]))
     return (perf=perf, labels=labels, title=title, agg=agg, df=df)
 end
@@ -448,14 +454,13 @@ function plot_profile_for(
     metric::Symbol=:min_total_time,
     taus=0.9:0.1:100,
     root::AbstractString=joinpath(dirname(@__DIR__), "results"),
-    success_col::Symbol=:n_timeouts,
     success_ok = (x)->(x == 0),
     xlabel::AbstractString = (metric == :min_total_time ? "Performance ratio "*L"\tau" : "τ = mᵢ / minⱼ mⱼ"),
     ylabel::AbstractString = "Fraction solved",
     outfile::Union{Nothing,AbstractString}=nothing,
     problem_sets=nothing,
     plotkwargs...)
-    prof = make_profile(variant; run_params=run_params, metric=metric, taus=taus, root=root, success_col=success_col, success_ok=success_ok, problem_sets=problem_sets)
+    prof = make_profile(variant; run_params=run_params, metric=metric, taus=taus, root=root, success_ok=success_ok, problem_sets=problem_sets)
     return plot_performance_profile(prof.perf;
         labels=prof.labels,
         title=prof.title,
