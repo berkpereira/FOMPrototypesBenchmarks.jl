@@ -464,7 +464,7 @@ function plot_performance_profile(
             if metric in [:min_k_operator_final, :min_k_final]
                 xlabel = "Iterations"
             elseif metric in [:min_total_time, :min_solver_time, :min_setup_time]
-                xlabel = "Solve time"
+                xlabel = "Solve time (s)"
             end
         end 
     end
