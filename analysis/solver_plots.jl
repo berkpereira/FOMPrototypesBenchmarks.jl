@@ -17,7 +17,9 @@ st = paper_plot_kwargs(
 out_dir = joinpath(dirname(@__DIR__), "analysis", "figs", "solver")
 mkpath(out_dir)
 
-prof_type = :absolute # relative or absolute
+prof_type = :relative # relative or absolute
+
+legend_place = :topleft
 
 # selection knobs
 chosen_problem_sets = [
@@ -30,7 +32,7 @@ chosen_problem_sets = [
 run_params = (
     global_timeout=Inf,
     max_k_operator=50_000,
-    rel_kkt_tol=1e-3,
+    rel_kkt_tol=1e-6,
 )
 
 unwanted_label_keys = [ # comment out wanted keys
@@ -84,7 +86,6 @@ perf_time = performance_profile(
     agg,
     prof_type;
     metric=:min_total_time,
-    # taus=1.0:0.1:1000,
 )
 labels, title = build_labels(String.(names(perf_time)[2:end]), unwanted_label_keys, nothing)
 
@@ -92,7 +93,7 @@ perf_kop = performance_profile(
     agg,
     prof_type;
     metric=:min_k_operator_final,
-    # taus=0.1:0.1:1000,
+    # taus=logspace(5.0, 58_000., 500),
 )
 labels, title = build_labels(String.(names(perf_kop)[2:end]), unwanted_label_keys, nothing)
 
@@ -108,8 +109,8 @@ plt_time = plot_performance_profile(
     :min_total_time;
     labels=labels,
     title=title,
-    legend=:topleft,
-    # ylims=(0, 1.05),
+    legend=legend_place,
+    ylims=(0, 1.3),
     # xlims=(1e-6, Inf),
     xscale=:log10,
     outfile=joinpath(out_dir, "admm-time-profile-$(fname_suffix).pdf"),
@@ -123,8 +124,8 @@ plt_kop = plot_performance_profile(
     :min_k_operator_final;
     labels=labels,
     title=title,
-    legend=:topleft,
-    # ylims=(0, 1.05),
+    legend=legend_place,
+    ylims=(0, 1.3),
     # xlims=(1e-6, Inf),
     xscale=:log10,
     outfile=joinpath(out_dir, "admm-iter-profile-$(fname_suffix).pdf"),

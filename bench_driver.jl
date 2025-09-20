@@ -5,9 +5,9 @@ import Dates
 # pick problem sets and auto-generate the list
 const problem_sets = [
     # "sslsq",
-    "maros",
     # "mpc",
-    "netlib_feasible",
+    "maros",
+    # "netlib_feasible",
 ]
 
 
