@@ -17,25 +17,26 @@ st = paper_plot_kwargs(
 out_dir = joinpath(dirname(@__DIR__), "analysis", "figs", "solver")
 mkpath(out_dir)
 
-prof_type = :relative # relative or absolute
+prof_type = :absolute # relative or absolute
 
-legend_place = :topleft
+legend_place = :bottomright
 
 # selection knobs
 chosen_problem_sets = [
     # "sslsq",
+    # "mpc",
     # "maros",
-    "mpc",
-    # "netlib_feasible",
+    "netlib_feasible",
 ]
 
 run_params = (
     global_timeout=Inf,
     max_k_operator=50_000,
-    rel_kkt_tol=1e-6,
+    rel_kkt_tol=1e-3,
 )
 
-unwanted_label_keys = [ # comment out wanted keys
+# comment out wanted keys
+unwanted_label_keys = [
     # "acceleration",
     "accel-memory",
     # "krylov-tries-per-mem",
@@ -82,6 +83,7 @@ add_run_param_columns!(df)
 
 # 3. Aggregate the replicates and prepare the profile metric.
 agg = aggregate_replicates(df)
+
 perf_time = performance_profile(
     agg,
     prof_type;
@@ -93,7 +95,7 @@ perf_kop = performance_profile(
     agg,
     prof_type;
     metric=:min_k_operator_final,
-    # taus=logspace(5.0, 58_000., 500),
+    # taus=logspace(2.7, 24_000., 500),
 )
 labels, title = build_labels(String.(names(perf_kop)[2:end]), unwanted_label_keys, nothing)
 
@@ -110,7 +112,7 @@ plt_time = plot_performance_profile(
     labels=labels,
     title=title,
     legend=legend_place,
-    ylims=(0, 1.3),
+    ylims=(0, 0.7),
     # xlims=(1e-6, Inf),
     xscale=:log10,
     outfile=joinpath(out_dir, "admm-time-profile-$(fname_suffix).pdf"),
@@ -125,7 +127,7 @@ plt_kop = plot_performance_profile(
     labels=labels,
     title=title,
     legend=legend_place,
-    ylims=(0, 1.3),
+    ylims=(0, 0.7),
     # xlims=(1e-6, Inf),
     xscale=:log10,
     outfile=joinpath(out_dir, "admm-iter-profile-$(fname_suffix).pdf"),
