@@ -2,3 +2,6 @@
 logs/*
 results/*
 results_spmv/*
+
+# analysis figure pdfs
+analysis/figs/*/*.pdf
