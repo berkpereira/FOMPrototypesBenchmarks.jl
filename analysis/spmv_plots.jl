@@ -1,8 +1,17 @@
 include("spmv_utils.jl")
 
+problem_sets = String[
+    "sslsq",
+    # "mpc",
+    # "maros",
+    # "netlib_feaisble"
+]
+
 gr()
-df  = load_spmv_results()
-rf  = ratios_by_op(df)
+
+time_metric = :median # in {:min, :median, :max}
+df = load_spmv_results(; problem_sets=problem_sets, time_metric=time_metric)
+rf = ratios_by_op(df; time_metric=time_metric)
 out_dir = joinpath(dirname(@__DIR__), "analysis", "figs", "spmv")
 
 
@@ -24,9 +33,10 @@ hist_st = paper_plot_kwargs(
     column=:single,
     fontsize=5,
     fontfamily="Computer Modern",
-    aspect=0.4,
+    aspect=0.3,
     tight=true,
     grid=true,
+    xlim=(-Inf, Inf),
 )
 
 hist_plt = plot_ratio_hist(
@@ -36,8 +46,9 @@ hist_plt = plot_ratio_hist(
     fontfamily="Computer Modern",
     tight=true,
     by_op=false,
-    bins=20,
+    # bins=30,
     normalize=:probability,
     alpha=0.9,
-    outfile=joinpath(out_dir, "ratio_hist.pdf"), hist_st...
+    outfile=joinpath(out_dir, "spmv_cr_ratio_hist.pdf"),
+    hist_st...
 )
