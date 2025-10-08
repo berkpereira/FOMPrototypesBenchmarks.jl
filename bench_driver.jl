@@ -14,7 +14,7 @@ const problem_sets = [
 # note this loads problems from search results (ie possibly filtered somehow
 # from whole of each problem set)
 const problems = vcat((
-	[(ps, pname) for pname in FOMPrototypesBenchmarks.load_problem_list(ps)]
+	[(ps, pname) for pname in FOMPrototypesBenchmarks.load_problem_list(ps, :fom)]
 	for ps in problem_sets
 )...)
 const nreps = 2 # we can use minimum time in each problem
