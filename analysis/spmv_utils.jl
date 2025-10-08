@@ -18,20 +18,9 @@ _validate_time_metric(metric::Symbol) = haskey(_TIME_METRIC_COLUMNS, metric) || 
 
 _normalize_time(val) = val === missing ? missing : float(val)
 
-function _resolve_time_column(df::DataFrame, metric::Symbol)
+function _resolve_time_column(metric::Symbol)
     _validate_time_metric(metric)
-    col = _TIME_METRIC_COLUMNS[metric]
-    if col in Symbol.(names(df))
-        return col
-    elseif :time_s in names(df)
-        return :time_s
-    else
-        available = filter(c -> c in Symbol.(names(df)), values(_TIME_METRIC_COLUMNS))
-        if !isempty(available)
-            return first(available)
-        end
-        throw(ArgumentError("DataFrame is missing timing columns needed for metric $(metric)."))
-    end
+    return _TIME_METRIC_COLUMNS[metric]
 end
 
 """
@@ -68,23 +57,9 @@ function load_spmv_results(; root::AbstractString = "results_spmv",
 
             dens = isnothing(m) || isnothing(n) || m == 0 || n == 0 ? missing : nnz / (m * n)
 
-            time_legacy   = hasproperty(r, :time_s)        ? _normalize_time(getfield(r, :time_s)) : missing
             time_min      = hasproperty(r, :time_min_s)     ? _normalize_time(getfield(r, :time_min_s)) : missing
             time_median   = hasproperty(r, :time_median_s)  ? _normalize_time(getfield(r, :time_median_s)) : missing
             time_max      = hasproperty(r, :time_max_s)     ? _normalize_time(getfield(r, :time_max_s)) : missing
-
-            time_min    === missing && (time_min    = time_legacy)
-            time_median === missing && (time_median = something(time_legacy, time_min))
-            time_max    === missing && (time_max    = time_legacy)
-
-            time_s_val = if time_metric === :min
-                time_min
-            elseif time_metric === :max
-                time_max
-            else
-                time_median
-            end
-            time_s_val === missing && (time_s_val = something(time_median, time_min, time_max, time_legacy))
 
             push!(rows, (
                 file          = f,
@@ -102,7 +77,6 @@ function load_spmv_results(; root::AbstractString = "results_spmv",
                 time_min_s    = time_min,
                 time_median_s = time_median,
                 time_max_s    = time_max,
-                time_s        = time_s_val,
                 time_metric   = time_metric,
             ))
         end
@@ -123,14 +97,14 @@ default median). Columns in the output:
 """
 function ratios_by_op(df::DataFrame; time_metric::Symbol=:median)
     _validate_time_metric(time_metric)
-    time_col = _resolve_time_column(df, time_metric)
+    time_col = _resolve_time_column(time_metric)
 
     # pivot by vec real/complex then compute ratios (keep simple and robust)
     g = groupby(df, [:problem_set, :problem_name, :matrix, :op])
     rows = NamedTuple[]
     first_or_missing(v) = isempty(v) ? missing : v[1]
     for sub in g
-        # time in chosen representative metric (min, median, max), time_col
+        # time in chosen representative metric (min, median, max), time_metric
         t_real    = first_or_missing(sub[sub.vec .== "real", time_col])
         t_complex = first_or_missing(sub[sub.vec .== "complex", time_col])
 
