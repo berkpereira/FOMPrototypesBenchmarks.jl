@@ -8,16 +8,52 @@ using Plots
 using LaTeXStrings
 using Measures
 
+const _TIME_METRIC_COLUMNS = Dict(
+    :min    => :time_min_s,
+    :median => :time_median_s,
+    :max    => :time_max_s,
+)
+
+_validate_time_metric(metric::Symbol) = haskey(_TIME_METRIC_COLUMNS, metric) || throw(ArgumentError("Unsupported time metric: $(metric). Choose one of :min, :median, :max."))
+
+_normalize_time(val) = val === missing ? missing : float(val)
+
+function _resolve_time_column(df::DataFrame, metric::Symbol)
+    _validate_time_metric(metric)
+    col = _TIME_METRIC_COLUMNS[metric]
+    if col in Symbol.(names(df))
+        return col
+    elseif :time_s in names(df)
+        return :time_s
+    else
+        available = filter(c -> c in Symbol.(names(df)), values(_TIME_METRIC_COLUMNS))
+        if !isempty(available)
+            return first(available)
+        end
+        throw(ArgumentError("DataFrame is missing timing columns needed for metric $(metric)."))
+    end
+end
+
 """
-    load_spmv_results(; root="results_spmv") -> DataFrame
+    load_spmv_results(; root="results_spmv", problem_sets=String[],
+                         time_metric::Symbol=:median) -> DataFrame
 
 Load all SpMV result files from `root` and return a DataFrame with one row per
 recorded measurement. Each row includes problem identifiers, matrix/op metadata,
-timings, and derived quantities like density.
+timings, and derived quantities like density. Timing columns include
+`time_min_s`, `time_median_s`, `time_max_s`, and a convenience `time_s` column
+that reflects the requested `time_metric` (default: median).
 """
-function load_spmv_results(; root::AbstractString = "results_spmv")
+function load_spmv_results(; root::AbstractString = "results_spmv",
+        problem_sets::AbstractVector{<:AbstractString} = String[],
+        time_metric::Symbol = :median)
+    _validate_time_metric(time_metric)
+
     # Resolve path relative to repo root when called from this file
-    files = glob(joinpath(root, "*", "*", "spmv_*.jld2"))
+    pattern = joinpath(root, "*", "*", "spmv*.jld2")
+    files = isempty(problem_sets) ?
+        glob(pattern) :
+        vcat((glob(joinpath(root, ps, "*", "spmv*.jld2")) for ps in problem_sets)...)
 
     rows = NamedTuple[]
     for f in files
@@ -29,23 +65,45 @@ function load_spmv_results(; root::AbstractString = "results_spmv")
             m = getfield(r, :m)
             n = getfield(r, :n)
             nnz = getfield(r, :nnz)
-            time_s = getfield(r, :time_s)
+
             dens = isnothing(m) || isnothing(n) || m == 0 || n == 0 ? missing : nnz / (m * n)
 
+            time_legacy   = hasproperty(r, :time_s)        ? _normalize_time(getfield(r, :time_s)) : missing
+            time_min      = hasproperty(r, :time_min_s)     ? _normalize_time(getfield(r, :time_min_s)) : missing
+            time_median   = hasproperty(r, :time_median_s)  ? _normalize_time(getfield(r, :time_median_s)) : missing
+            time_max      = hasproperty(r, :time_max_s)     ? _normalize_time(getfield(r, :time_max_s)) : missing
+
+            time_min    === missing && (time_min    = time_legacy)
+            time_median === missing && (time_median = something(time_legacy, time_min))
+            time_max    === missing && (time_max    = time_legacy)
+
+            time_s_val = if time_metric === :min
+                time_min
+            elseif time_metric === :max
+                time_max
+            else
+                time_median
+            end
+            time_s_val === missing && (time_s_val = something(time_median, time_min, time_max, time_legacy))
+
             push!(rows, (
-                file        = f,
-                timestamp   = get(meta, "timestamp", missing),
-                problem_set = getfield(r, :problem_set),
-                problem_name= getfield(r, :problem_name),
-                matrix      = getfield(r, :matrix),    # "P", "A", or "AT"
-                op          = getfield(r, :op),        # "P*x", "A*x", or "A'*y"
-                vec         = getfield(r, :vec),       # "real" or "complex"
-                m           = m,
-                n           = n,
-                nnz         = nnz,
-                density     = dens,
-                eltype      = getfield(r, :eltype),
-                time_s      = time_s,
+                file          = f,
+                timestamp     = get(meta, "timestamp", missing),
+                problem_set   = getfield(r, :problem_set),
+                problem_name  = getfield(r, :problem_name),
+                matrix        = getfield(r, :matrix),    # "P", "A", or "AT"
+                op            = getfield(r, :op),        # "P*x", "A*x", or "A'*y"
+                vec           = getfield(r, :vec),       # "real" or "complex"
+                m             = m,
+                n             = n,
+                nnz           = nnz,
+                density       = dens,
+                eltype        = getfield(r, :eltype),
+                time_min_s    = time_min,
+                time_median_s = time_median,
+                time_max_s    = time_max,
+                time_s        = time_s_val,
+                time_metric   = time_metric,
             ))
         end
     end
@@ -54,22 +112,27 @@ function load_spmv_results(; root::AbstractString = "results_spmv")
 end
 
 """
-    ratios_by_op(df::DataFrame) -> DataFrame
+    ratios_by_op(df::DataFrame; time_metric::Symbol=:median) -> DataFrame
 
-From a long DF returned by `load_spmv_results`, compute per-(problem, matrix, op)
-ratios of complex/real times and attach matrix descriptors for plotting.
-Columns in the output:
+From a long DF returned by `load_spmv_results`, compute per-(problem, matrix,
+op) ratios of complex/real times and attach matrix descriptors for plotting.
+The `time_metric` keyword controls which timing column is used (min/median/max,
+default median). Columns in the output:
   problem_set, problem_name, matrix, op, m, n, nnz, density,
-  time_real_s, time_complex_s, ratio_cr
+  time_real_s, time_complex_s, ratio_cr, time_metric
 """
-function ratios_by_op(df::DataFrame)
+function ratios_by_op(df::DataFrame; time_metric::Symbol=:median)
+    _validate_time_metric(time_metric)
+    time_col = _resolve_time_column(df, time_metric)
+
     # pivot by vec real/complex then compute ratios (keep simple and robust)
     g = groupby(df, [:problem_set, :problem_name, :matrix, :op])
     rows = NamedTuple[]
     first_or_missing(v) = isempty(v) ? missing : v[1]
     for sub in g
-        t_real    = first_or_missing(sub[sub.vec .== "real", :time_s])
-        t_complex = first_or_missing(sub[sub.vec .== "complex", :time_s])
+        # time in chosen representative metric (min, median, max), time_col
+        t_real    = first_or_missing(sub[sub.vec .== "real", time_col])
+        t_complex = first_or_missing(sub[sub.vec .== "complex", time_col])
 
         ratio = (t_real isa Missing || t_complex isa Missing) ? missing : t_complex / t_real
 
@@ -85,6 +148,7 @@ function ratios_by_op(df::DataFrame)
             time_real_s   = t_real,
             time_complex_s= t_complex,
             ratio_cr      = ratio,
+            time_metric   = time_metric,
         ))
     end
     return DataFrame(rows)
@@ -160,6 +224,7 @@ units in the exported document. We therefore set `size=(round(Int,width_pt), rou
 directly with no DPI, so the PDF's bounding box matches your typographic width.
 """
 function paper_plot_kwargs(; column::Symbol=:single,
+        xlim::Tuple{Float64, Float64}=(-Inf, Inf),
         width_pt::Union{Nothing,Real}=nothing,
         height_pt::Union{Nothing,Real}=nothing,
         aspect::Real=1.0,
@@ -344,16 +409,23 @@ function plot_scatter_by_group(df::DataFrame; x::Symbol=:density, y::Symbol=:rat
 end
 
 """
-    plot_ratio_vs(df_ratio; x=:density, by_op=true, markersize=4, alpha=0.7,
+    plot_ratio_vs(data; x=:density, by_op=true, markersize=4, alpha=0.7,
                   xscale=:identity, yscale=:identity, legend=:best,
-                  title=nothing, outfile=nothing)
+                  title=nothing, outfile=nothing, time_metric=:median)
 
 Compatibility wrapper around `plot_scatter_by_group` to plot ratio vs a descriptor.
+`data` may be the long results DataFrame or a precomputed ratio table. When
+given the long form, ratios are computed on the fly using the requested
+`time_metric`.
 """
 function plot_ratio_vs(df_ratio::DataFrame; x::Symbol=:density, by_op::Bool=true,
         markersize::Real=4, alpha::Real=0.7, xscale::Symbol=:identity,
         yscale::Symbol=:identity, legend=:best, title=nothing,
-        outfile::Union{Nothing,AbstractString}=nothing, plotkwargs...)
+        outfile::Union{Nothing,AbstractString}=nothing,
+        time_metric::Symbol=:median, plotkwargs...)
+
+    _validate_time_metric(time_metric)
+    df_ratio = :ratio_cr in Symbol.(names(df_ratio)) ? df_ratio : ratios_by_op(df_ratio; time_metric=time_metric)
 
     group = by_op ? :op : nothing
     return plot_scatter_by_group(df_ratio; x=x, y=:ratio_cr, group=group,
@@ -396,11 +468,17 @@ function plot_hist_by_group(df::DataFrame; value::Symbol=:ratio_cr,
 
     hist!(v; lbl) = begin
         if bins === nothing
-            histogram!(plt, v; alpha=alpha, normalize=normalize, label=lbl,
-                xlabel=xlabel, ylabel=ylabel, plotkwargs...)
+            histogram!(
+                plt, v;
+                alpha=alpha, normalize=normalize,
+                label=lbl, xlabel=xlabel, ylabel=ylabel, plotkwargs...
+            )
         else
-            histogram!(plt, v; bins=bins, alpha=alpha, normalize=normalize, label=lbl,
-                xlabel=xlabel, ylabel=ylabel, plotkwargs...)
+            histogram!(
+                plt, v;
+                bins=bins, alpha=alpha, normalize=normalize,
+                label=lbl, xlabel=xlabel, ylabel=ylabel, plotkwargs...
+            )
         end
     end
 
@@ -422,14 +500,21 @@ function plot_hist_by_group(df::DataFrame; value::Symbol=:ratio_cr,
 end
 
 """
-    plot_ratio_hist(df_ratio; by_op=true, bins=nothing, normalize=:none,
-                    alpha=0.7, legend=:best, title=nothing, outfile=nothing)
+    plot_ratio_hist(data; by_op=true, bins=nothing, normalize=:none,
+                    alpha=0.7, legend=:best, title=nothing, outfile=nothing,
+                    time_metric=:median)
 
-Compatibility wrapper to plot histograms of complex/real time ratios.
+Compatibility wrapper to plot histograms of complex/real time ratios. `data`
+may be the long results DataFrame or a precomputed ratio table. When given the
+long form, ratios are computed using `time_metric`.
 """
 function plot_ratio_hist(df_ratio::DataFrame; by_op::Bool=true, bins=nothing,
         normalize::Symbol=:none, alpha::Real=0.7, legend=:best, title=nothing,
-        outfile::Union{Nothing,AbstractString}=nothing, plotkwargs...)
+        outfile::Union{Nothing,AbstractString}=nothing,
+        time_metric::Symbol=:median, plotkwargs...)
+
+    _validate_time_metric(time_metric)
+    df_ratio = :ratio_cr in Symbol.(names(df_ratio)) ? df_ratio : ratios_by_op(df_ratio; time_metric=time_metric)
 
     group = by_op ? :op : nothing
     return plot_hist_by_group(df_ratio; value=:ratio_cr, group=group, bins=bins,
