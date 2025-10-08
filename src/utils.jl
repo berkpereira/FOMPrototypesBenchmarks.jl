@@ -28,8 +28,16 @@ function make_override(variant; acceleration=:none,
 	return d
 end
 
-function load_problem_list(set::String)
-	fn = joinpath(dirname(@__DIR__), "problem_search_results", "search_results_$set.txt")
+# bench_type in {:fom, :spmv}
+function load_problem_list(set::String, bench_type ::Symbol)
+	if bench_type == :fom
+		fn = joinpath(dirname(@__DIR__), "problem_search_results_fom", "search_results_$set.txt")
+	elseif bench_type == :spmv
+		fn = joinpath(dirname(@__DIR__), "problem_search_results_spmv", "search_results_$set.txt")
+	else
+		@error "Unrecognised bench_type: $bench_type"
+	end
+	
 	lines = readlines(fn)
     # drop empty or “#…” comment lines, strip whitespace
 	return [
