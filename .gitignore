@@ -1,9 +1,10 @@
 .vscode/*
 logs/*
 results/*
+results_archive/*
 results_spmv/*
 
 # analysis figure pdfs
 analysis/figs/*/*.pdf
-analysis/figs_archive/*/*.pdf
+figs_archive/*/*.pdf
 analysis/figs_archive/README.md
