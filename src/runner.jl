@@ -87,7 +87,7 @@ function run_multiple(args::Dict{String,Any},
 	# 3c) run each missing replicate
 	for rep in reps
 		Random.seed!(rep)
-		ws, results, to = FOMPrototypes.run_prototype(
+		ws, ws_diag, results, to = FOMPrototypes.run_prototype(
 			prob, problem_set, problem_name, args)
 		if save_results
 			mkpath(outdir)
