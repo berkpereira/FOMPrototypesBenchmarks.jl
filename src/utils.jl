@@ -2,12 +2,14 @@
 # A) List *only* the solver‐defining override keys here
 # ————————————————————————————————————————————————
 # 0) A little helper to build each override dict
-function make_override(variant; acceleration=:none,
+function make_override(
+	variant; acceleration=:none,
 	accel_memory=nothing,
 	krylov_tries_per_mem=1,
 	anderson_interval=10,
 	anderson_broyden_type=:QR2,
-	anderson_mem_type=:restarted)
+	anderson_mem_type=:restarted,
+	krylov_operator=:B)
 
 	d = Dict{String,Any}()
 	d["variant"]      = variant
@@ -24,6 +26,7 @@ function make_override(variant; acceleration=:none,
 	# only relevant for Krylov
 	if acceleration === :krylov
 		d["krylov-tries-per-mem"] = krylov_tries_per_mem
+		d["krylov-operator"]      = krylov_operator
 	end
 	return d
 end

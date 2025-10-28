@@ -4,9 +4,9 @@ import Dates
 
 # pick problem sets and auto-generate the list
 const problem_sets = [
-    # "sslsq",
+    "sslsq",
     # "mpc",
-    "maros",
+    # "maros",
     # "netlib_feasible",
 ]
 
@@ -29,7 +29,7 @@ memories  = [15]
 
 anderson_intervals = [1, 10]
 
-krylov_tries_numbers = [1, 3]
+krylov_tries_numbers = [3]
 
 # 2) build each family by comprehension
 acc_none   = [ FOMPrototypesBenchmarks.make_override(variant; acceleration=:none) ]
@@ -38,8 +38,9 @@ acc_krylov = [ FOMPrototypesBenchmarks.make_override(variant;
                 acceleration=:krylov,
                 accel_memory=m,
                 krylov_tries_per_mem=krylov_tries,
+                krylov_operator=operator,
                 )
-            for m in memories for krylov_tries in krylov_tries_numbers]
+            for m in memories for krylov_tries in krylov_tries_numbers for operator in [:tilde_A]]
 
 # Anderson configs with diff broyden types, mem_type == :restarted
 acc_anderson_type2 = [ FOMPrototypesBenchmarks.make_override(variant;
@@ -60,10 +61,10 @@ acc_anderson_type1 = [ FOMPrototypesBenchmarks.make_override(variant;
 
 # 3) concatenate to get the full override list
 overrides = [
-    acc_none;
+    # acc_none;
     acc_krylov;
-    acc_anderson_type2;
-    acc_anderson_type1;
+    # acc_anderson_type2;
+    # acc_anderson_type1;
     ]
 
 # build full solver configurations by merging with default key-value pairs
