@@ -3,6 +3,7 @@ logs/*
 results/*
 results_archive/*
 results_spmv/*
+results_cholsolve/*
 
 # analysis figure pdfs
 analysis/figs/*/*.pdf
