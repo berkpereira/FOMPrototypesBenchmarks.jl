@@ -6,6 +6,7 @@ const DEFAULT_SOLVER_ARGS = Dict{String,Any}(
     "variant"               => :ADMM,
     "res-norm"              => Inf,
     "rho"                   => 0.1, # OSQP starts with 0.1
+    "rho-update-period"     => Inf,
     "theta"                 => 1.0,
     
     "acceleration"          => :none,
@@ -14,7 +15,7 @@ const DEFAULT_SOLVER_ARGS = Dict{String,Any}(
     "safeguard-factor"      => 1.0, # factor for fixed-point residual safeguard check in accelerated methods
     
     "krylov-tries-per-mem"  => 1,
-    "krylov-operator"       => :B,
+    "krylov-operator"       => :tilde_A,
     
     "anderson-interval"     => 10,
     "anderson-broyden-type" => :normal2, # in {Symbol(1), :normal2, :QR2}
@@ -26,10 +27,10 @@ const DEFAULT_SOLVER_ARGS = Dict{String,Any}(
     #######
     # MAKE SURE max-iter AND max-k-operator EQUAL
     #######
-    "max-iter"              => 50_000, # only has an effect for no acceleration!
-    "max-k-operator"        => 50_000, # only has an effect for accelerated (Krylov/Anderson)!
-    "rel-kkt-tol"           => 1e-6,
-    "print-mod"             => Inf,
+    "max-iter"              => 20_000, # only has an effect for no acceleration!
+    "max-k-operator"        => 20_000, # only has an effect for accelerated (Krylov/Anderson)!
+    "rel-kkt-tol"           => 1e-3,
+    "print-mod"             => typemax(Int),
     "print-res-rel"         => true,
     "show-vlines"           => false,
     "run-fast"              => true,

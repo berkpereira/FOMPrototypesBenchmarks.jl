@@ -9,11 +9,13 @@ function make_override(
 	anderson_interval=10,
 	anderson_broyden_type=:QR2,
 	anderson_mem_type=:restarted,
-	krylov_operator=:B)
+	krylov_operator=:B,
+	rho_update_period=Inf,)
 
 	d = Dict{String,Any}()
 	d["variant"]      = variant
 	d["acceleration"] = acceleration
+	d["rho-update-period"] = rho_update_period
 	if accel_memory !== nothing
 		d["accel-memory"] = accel_memory
 	end
@@ -31,15 +33,21 @@ function make_override(
 	return d
 end
 
-# bench_type in {:fom, :spmv}
+# bench_type in {:fom, :spmv, :cholsolve}
 function load_problem_list(set::String, bench_type ::Symbol)
 	if bench_type == :fom
 		fn = joinpath(dirname(@__DIR__), "problem_search_results_fom", "search_results_$set.txt")
 	elseif bench_type == :spmv
 		fn = joinpath(dirname(@__DIR__), "problem_search_results_spmv", "search_results_$set.txt")
+	elseif bench_type == :cholsolve
+		fn = joinpath(dirname(@__DIR__), "problem_search_results_cholsolve", "search_results_$set.txt")
 	else
 		@error "Unrecognised bench_type: $bench_type"
 	end
+	
+    if !isfile(fn)
+        error("Problem search results file not found: $fn")
+    end
 	
 	lines = readlines(fn)
     # drop empty or “#…” comment lines, strip whitespace
