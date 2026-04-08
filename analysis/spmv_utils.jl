@@ -197,23 +197,25 @@ For PDF/SVG backends (vector), Plots/GR effectively treats `size=(w,h)` as point
 units in the exported document. We therefore set `size=(round(Int,width_pt), round(Int,height_pt))`
 directly with no DPI, so the PDF's bounding box matches your typographic width.
 """
-function paper_plot_kwargs(; column::Symbol=:single,
-        xlim::Tuple{Float64, Float64}=(-Inf, Inf),
-        width_pt::Union{Nothing,Real}=nothing,
-        height_pt::Union{Nothing,Real}=nothing,
-        aspect::Real=1.0,
-        fontfamily::AbstractString="Computer Modern",
-        fontsize::Real=8,
-        tickfontsize::Union{Nothing,Real}=nothing,
-        legendfontsize::Union{Nothing,Real}=nothing,
-        titlefontsize::Union{Nothing,Real}=nothing,
-        lw::Real=1,
-        ms::Real=3,
-        grid::Bool=false,
-        tight::Bool=false,
-        framestyle::Symbol=:box,
-        left_margin=0mm, right_margin=0mm,
-        top_margin=0mm, bottom_margin=0mm)
+function paper_plot_kwargs(
+    ; column::Symbol=:single, # :single or :double
+    xlim::Tuple{Float64, Float64}=(-Inf, Inf),
+    width_pt::Union{Nothing,Real}=nothing,
+    height_pt::Union{Nothing,Real}=nothing,
+    aspect::Real=1.0,
+    fontfamily::AbstractString="Computer Modern",
+    fontsize::Real=8,
+    tickfontsize::Union{Nothing,Real}=nothing,
+    legendfontsize::Union{Nothing,Real}=nothing,
+    titlefontsize::Union{Nothing,Real}=nothing,
+    lw::Real=1,
+    ms::Real=3,
+    grid::Bool=false,
+    tight::Bool=false,
+    framestyle::Symbol=:box,
+    left_margin=0mm, right_margin=0mm,
+    top_margin=0mm, bottom_margin=0mm
+    )
 
     # Compute figure size in points, mapped directly to Plots size.
     default_wpt = column === :double ? 490.0 : 245.0

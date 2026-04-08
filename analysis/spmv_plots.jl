@@ -3,13 +3,13 @@ include("spmv_utils.jl")
 problem_sets = String[
     "sslsq",
     "mpc",
-    "maros",
-    # "netlib_feasible"
+    # "maros",
 ]
 
 gr()
 
 time_metric = :min # in {:min, :median, :max}
+
 df = load_spmv_results(; problem_sets=problem_sets, time_metric=time_metric)
 rf = ratios_by_op(df; time_metric=time_metric)
 out_dir = joinpath(dirname(@__DIR__), "analysis", "figs", "spmv")
@@ -61,7 +61,8 @@ hist_plt = plot_ratio_hist(
     by_op=false,
     bins=50,
     normalize=:probability,
-    alpha=0.9,
+    color="#002147",
+    alpha=0.85,
     xticks = tick_start:0.25:tick_stop,
     outfile=joinpath(out_dir, "spmv_cr_ratio_hist.pdf"),
     hist_st...

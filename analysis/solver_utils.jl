@@ -347,6 +347,8 @@ function build_labels(
         if haskey(d, "krylov-tries-per-mem") && !("krylov-tries-per-mem" in unwanted_label_keys); lbl *= ", tries = $(d["krylov-tries-per-mem"])"; end
         if haskey(d, "anderson-interval") && !("anderson-interval" in unwanted_label_keys); lbl *= ", interval = $(d["anderson-interval"])"; end
         if haskey(d, "anderson-mem-type") && !("anderson-mem-type" in unwanted_label_keys); lbl *= ", $(d["anderson-mem-type"]) memory"; end
+        if haskey(d, "krylov-operator") && !("krylov-operator" in unwanted_label_keys); lbl *= ", op: $(d["krylov-operator"])"; end
+        
         push!(labels, lbl)
         
         if haskey(d, "variant"); push!(variants, d["variant"]); end
@@ -360,15 +362,22 @@ end
 
 # Generic performance-profile computation on a chosen metric column.
 # metric must be a Symbol of a column present in agg_df, e.g. :min_total_time or :min_k_operator_final.
+# When scale_by_solved_union=true the relative profile normalises by the number of
+# problem/run-param combos solved by at least one solver.
 function performance_profile(
     agg_df::DataFrame,
     prof_type::Symbol; # :relative or :absolute
     metric::Symbol=:min_total_time,
     taus=nothing,
+    scale_by_solved_union::Bool=false,
+    kwargs...,
 )
+    if scale_by_solved_union && prof_type != :relative
+        throw(ArgumentError("scale_by_solved_union can only be true for relative performance profiles."))
+    end
 
     # collect unique method_id values
-    methods = unique(String.(agg.method_id)) 
+    methods = unique(String.(agg_df.method_id)) 
     
     if prof_type == :relative
         # Best per (problem, run_params_id) on the chosen metric to avoid mixing runs
@@ -382,11 +391,23 @@ function performance_profile(
         # add yet another col to agg2, with ratio of metric (eg min solve time) versus best out of all methods.
         # if a problem was unsolved by all methods, ratio is (usually) NaN here.
         agg2.ratio = agg2[!, metric] ./ agg2.best
+        agg2.solved_by_any = isfinite.(agg2.best)
 
-        # assign range of 500 tau values from 1 up to 1.1 times
+
+        solved_union_count = scale_by_solved_union ? count(isfinite.(best.best)) : nothing
+
+        unique_problems = unique(best[:, [:problem_set, :problem_name]])
+        solved_mask = isfinite.(best.best)
+        solved_problems = unique(best[solved_mask, [:problem_set, :problem_name]])
+
+        @info "Performance profile ($(metric), $prof_type) — problems: $(nrow(unique_problems)) " *
+            "($(nrow(best)) run-param combos); solved by ≥1 solver: $(nrow(solved_problems)) " *
+            "($(solved_union_count === nothing ? count(solved_mask) : solved_union_count) combos)"
+
+        # assign range of 500 tau values from 1 up to 1.2 times
         # the max ratio in the series
         if isnothing(taus)
-            taus = logspace(1.0, 1.1 * maximum(filter(isfinite, agg2.ratio)), 500)
+            taus = logspace(1.0, 1.2 * maximum(filter(isfinite, agg2.ratio)), 500)
         end
 
         perf = DataFrame(τ = collect(taus)) # just column with tau values for now
@@ -394,17 +415,30 @@ function performance_profile(
             sub = @view agg2[agg2.method_id .== m, :] # only rows of agg2 relative to this method
             # create column in profile for this method.
             # input to mean is bit vector --- for a given tau, valued 1 if sub_ratio
-            perf[!, m] = [
-                mean(sub.ratio .<= τ)
-                for τ in taus
-            ]
+            if scale_by_solved_union
+                denom = solved_union_count
+                if denom == 0
+                    perf[!, m] = zeros(length(taus))
+                else
+                    valid_mask = sub.solved_by_any
+                    perf[!, m] = [
+                        sum((sub.ratio .<= τ) .& valid_mask) / denom
+                        for τ in taus
+                    ]
+                end
+            else
+                perf[!, m] = [
+                    mean(sub.ratio .<= τ)
+                    for τ in taus
+                ]
+            end
         end
     elseif prof_type == :absolute
         if isnothing(taus)
             
             taus = logspace(
-                0.9*minimum(filter(isfinite, agg[!, metric])),
-                1.1*maximum(filter(isfinite, agg[!, metric])),
+                0.9*minimum(filter(isfinite, agg_df[!, metric])),
+                1.1*maximum(filter(isfinite, agg_df[!, metric])),
                 500
             )
             println("Minimum of taus is $(minimum(taus))")
@@ -414,7 +448,7 @@ function performance_profile(
 
         perf = DataFrame(τ = collect(taus)) # just column with tau values for now
         for m in methods
-            sub = @view agg[agg.method_id .== m, :] # only rows of agg relative to this method
+            sub = @view agg_df[agg_df.method_id .== m, :] # only rows of agg relative to this method
             perf[!, m] = [
                 mean(sub[!, metric] .<= τ)
                 for τ in taus
@@ -440,6 +474,9 @@ function plot_performance_profile(
     linealpha::Real=1.0,
     xlims=nothing,
     ylims=(0, 1.05),
+    markers::Bool=true,
+    n_markers::Int=8,
+    markersize::Real=3.0,
     outfile::Union{Nothing,AbstractString}=nothing,
     plotkwargs...
 )
@@ -447,7 +484,7 @@ function plot_performance_profile(
         if prof_type == :relative
             xlims = (1.0, maximum(perf[!, :τ]))
         elseif prof_type == :absolute
-            xlims = (0.95*minimum(perf[!, :τ]), maximum(perf[!, :τ]))
+            xlims = (0.95*minimum(perf[!, :τ]), 1.10 * maximum(perf[!, :τ]))
         else
             @error "Unrecognised profile type: $prof_type"
         end
@@ -466,30 +503,78 @@ function plot_performance_profile(
             elseif metric in [:min_total_time, :min_solver_time, :min_setup_time]
                 xlabel = "Solve time (s)"
             end
-        end 
+        end
     end
 
     ys = Matrix(perf[:, Not(:τ)])
-    labmat = (labels === nothing ? reshape([names(perf)[2:end]...], 1, :) : labels)
+    n_series = size(ys, 2)
+    label_vec = labels === nothing ? names(perf)[2:end] : vec(labels)
     kwargs = Dict{Symbol,Any}(plotkwargs)
+
+    # Build per-series linestyle vector (used both for lines and legend proxies)
     if !haskey(kwargs, :linestyle)
         base_styles = [:solid, :dash, :dot, :dashdot, :dashdotdot]
-        n_series = size(ys, 2)
         repeats = max(1, ceil(Int, n_series / length(base_styles)))
         kwargs[:linestyle] = reshape(repeat(base_styles, repeats)[1:n_series], 1, n_series)
     end
+    ls = kwargs[:linestyle]
+    styles_vec = (ls isa AbstractArray) ? vec(ls) : fill(ls, n_series)
 
+    # Build per-series marker shape vector
+    base_markers = [:circle, :square, :diamond, :utriangle, :dtriangle, :xcross, :star5, :pentagon]
+    repeats = max(1, ceil(Int, n_series / length(base_markers)))
+    marker_shapes = repeat(base_markers, repeats)[1:n_series]
+
+    # 1. Draw all lines (no legend entries, no markers)
     plt = plot(perf.τ, ys;
         xlabel=xlabel,
         ylabel=ylabel,
-        label=labmat,
+        label=fill("", 1, n_series),
         legend=legend,
         title=title,
         alpha=linealpha,
         xlims=xlims,
         ylims=ylims,
+        markershape=:none,
         kwargs...,
     )
+
+    τ = perf.τ
+
+    # 2. Draw sparse markers (no legend entries)
+    if markers
+        xscale_val = get(kwargs, :xscale, :identity)
+        τ_pos = xscale_val == :log10 ? log10.(max.(τ, 1e-300)) : float.(τ)
+        sub_positions = range(τ_pos[1], τ_pos[end]; length=n_markers)
+        sub_idx = unique([argmin(abs.(τ_pos .- p)) for p in sub_positions])
+
+        for i in 1:n_series
+            scatter!(plt, τ[sub_idx], ys[sub_idx, i];
+                markershape=marker_shapes[i],
+                markersize=markersize,
+                markeralpha=linealpha,
+                markerstrokecolor=i,
+                markerstrokewidth=0.5,
+                label="",
+                color=i,
+            )
+        end
+    end
+
+    # 3. Legend proxy series: NaN data, both linestyle + markershape → legend shows both
+    lw_val = get(kwargs, :lw, get(kwargs, :linewidth, 1))
+    for i in 1:n_series
+        plot!(plt, [NaN], [NaN];
+            linestyle=styles_vec[i],
+            linewidth=lw_val,
+            markershape=markers ? marker_shapes[i] : :none,
+            markersize=markersize,
+            markerstrokewidth=0.5,
+            color=i,
+            label=label_vec[i],
+            alpha=linealpha,
+        )
+    end
 
     if outfile !== nothing
         save_pdf(plt, String(outfile))
