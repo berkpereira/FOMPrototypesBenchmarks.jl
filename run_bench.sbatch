@@ -5,7 +5,7 @@
 
 #SBATCH --ntasks=1
 #SBATCH --nodes=1
-#SBATCH --cpus-per-task=27          # grab logical CPUs
+#SBATCH --cpus-per-task=50          # grab logical CPUs
 
 # SBATCH --hint=nomultithread       # no hyperthread scheduling...
 # SBATCH --cpu-bind=cores         # bind to cores, don't move worker threads

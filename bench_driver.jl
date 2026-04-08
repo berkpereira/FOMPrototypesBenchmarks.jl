@@ -4,10 +4,11 @@ import Dates
 
 # pick problem sets and auto-generate the list
 const problem_sets = [
-    "sslsq",
+    # "sslsq",
     # "mpc",
     # "maros",
     # "netlib_feasible",
+    "opf_socp",
 ]
 
 
@@ -25,22 +26,24 @@ start_time = Dates.now()
 
 # 1) “grid” of settings
 variant   = :ADMM
+RHO_UPDATE_PERIOD = 100
 memories  = [15]
 
-anderson_intervals = [1, 10]
+anderson_intervals = [10]
 
-krylov_tries_numbers = [3]
+krylov_tries_numbers = [2]
 
 # 2) build each family by comprehension
-acc_none   = [ FOMPrototypesBenchmarks.make_override(variant; acceleration=:none) ]
+acc_none   = [ FOMPrototypesBenchmarks.make_override(variant; acceleration=:none, rho_update_period=RHO_UPDATE_PERIOD) ]
 
 acc_krylov = [ FOMPrototypesBenchmarks.make_override(variant;
                 acceleration=:krylov,
                 accel_memory=m,
                 krylov_tries_per_mem=krylov_tries,
-                krylov_operator=operator,
+                krylov_operator=:tilde_A, # note operator here
+                rho_update_period=RHO_UPDATE_PERIOD,
                 )
-            for m in memories for krylov_tries in krylov_tries_numbers for operator in [:tilde_A]]
+            for m in memories for krylov_tries in krylov_tries_numbers]
 
 # Anderson configs with diff broyden types, mem_type == :restarted
 acc_anderson_type2 = [ FOMPrototypesBenchmarks.make_override(variant;
@@ -48,7 +51,8 @@ acc_anderson_type2 = [ FOMPrototypesBenchmarks.make_override(variant;
                     accel_memory=m,
                     anderson_interval=anderson_interval,
                     anderson_broyden_type=:QR2,
-                    anderson_mem_type=:restarted)
+                    anderson_mem_type=:restarted,
+                    rho_update_period=RHO_UPDATE_PERIOD)
                 for m in memories for anderson_interval in anderson_intervals]
 
 acc_anderson_type1 = [ FOMPrototypesBenchmarks.make_override(variant;
@@ -56,14 +60,15 @@ acc_anderson_type1 = [ FOMPrototypesBenchmarks.make_override(variant;
                     accel_memory=m,
                     anderson_interval=anderson_interval,
                     anderson_broyden_type=Symbol(1),
-                    anderson_mem_type=:rolling)
+                    anderson_mem_type=:rolling,
+                    rho_update_period=RHO_UPDATE_PERIOD)
                     for m in memories for anderson_interval in anderson_intervals]
 
 # 3) concatenate to get the full override list
 overrides = [
-    # acc_none;
+    acc_none;
     acc_krylov;
-    # acc_anderson_type2;
+    acc_anderson_type2;
     # acc_anderson_type1;
     ]
 
