@@ -491,11 +491,13 @@ function plot_performance_profile(
     end
 
     if isnothing(xlabel)
+        _ff = get(Dict(plotkwargs), :fontfamily, "")
+        _tau = _ff == "Computer Modern" ? (" " * L"\tau") : ""
         if prof_type == :relative
             if metric in [:min_k_operator_final, :min_k_final]
-                xlabel = "Iterations performance ratio " * L"\tau"
+                xlabel = "Iterations performance ratio" * _tau
             elseif metric in [:min_total_time, :min_solver_time, :min_setup_time]
-                xlabel = "Time performance ratio " * L"\tau"
+                xlabel = "Time performance ratio" * _tau
             end
         elseif prof_type == :absolute
             if metric in [:min_k_operator_final, :min_k_final]

@@ -4,6 +4,9 @@ using Plots
 
 gr()
 
+# toggle font: "Computer Modern" for papers, "Helvetica" for posters
+const FONTFAMILY = "Helvetica"
+
 problem_sets = String[
     "sslsq",
     "mpc",
@@ -25,7 +28,7 @@ hist_st = paper_plot_kwargs(
     ;
     column=:single,
     fontsize=5,
-    fontfamily="Computer Modern",
+    fontfamily=FONTFAMILY,
     aspect=0.3,
     tight=true,
     grid=true,

@@ -8,6 +8,9 @@ problem_sets = String[
 
 gr()
 
+# toggle font: "Computer Modern" for papers, "Helvetica" for posters
+const FONTFAMILY = "Helvetica"
+
 time_metric = :min # in {:min, :median, :max}
 
 df = load_spmv_results(; problem_sets=problem_sets, time_metric=time_metric)
@@ -20,7 +23,7 @@ scatter_st = paper_plot_kwargs(
     ;
     column=:single,
     fontsize=5,
-    fontfamily="Computer Modern",
+    fontfamily=FONTFAMILY,
     aspect=0.8,
     tight=true,
 )
@@ -32,7 +35,7 @@ hist_st = paper_plot_kwargs(
     ;
     column=:single,
     fontsize=5,
-    fontfamily="Computer Modern",
+    fontfamily=FONTFAMILY,
     aspect=0.3,
     tight=true,
     grid=true,
@@ -56,7 +59,7 @@ hist_plt = plot_ratio_hist(
     rf_hist;
     column=:single,
     fontsize=5,
-    fontfamily="Computer Modern",
+    fontfamily=FONTFAMILY,
     tight=true,
     by_op=false,
     bins=50,

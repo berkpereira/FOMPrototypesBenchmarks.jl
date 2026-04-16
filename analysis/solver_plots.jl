@@ -2,11 +2,15 @@ include("solver_utils.jl")
 
 gr()
 
+# toggle font: "Computer Modern" for papers, "Helvetica" for posters
+const FONTFAMILY = "Helvetica"
+
 # shared publication styling helpers.
 st = paper_plot_kwargs(
     ;
     column=:single,
     fontsize=5,
+    fontfamily=FONTFAMILY,
     tight=true,
     aspect=0.6,
     lw=2.0,
@@ -30,16 +34,16 @@ legend_place = :bottomright
 
 # selection knobs
 CHOSEN_PROBLEM_SETS = [
-    # "mpc",
+    "mpc",
     # "sslsq",
     # "maros",
-    "opf_socp",
+    # "opf_socp",
 ]
 
 RUN_PARAMS = (
     global_timeout=Inf,
     max_k_operator=20_000,
-    rel_kkt_tol=1e-3, # in {1e-3, 1e-6}
+    rel_kkt_tol=1e-6, # in {1e-3, 1e-6}
     )
     
 if length(CHOSEN_PROBLEM_SETS) > 1
